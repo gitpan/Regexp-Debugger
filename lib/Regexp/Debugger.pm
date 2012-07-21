@@ -4,7 +4,7 @@ use warnings;
 use strict;
 eval "use feature 'evalbytes'";         # Experimental fix for Perl 5.16
 
-our $VERSION = '0.001001';
+our $VERSION = '0.001002';
 
 # Give an accurate warning if used with an antique Perl...
 BEGIN {
@@ -1547,24 +1547,43 @@ sub _build_visualization {
     # Leave a gap...
     _visualize $data_mode, $NO_MATCH, q{ } for 1..2;
 
+    # Create marker for any match or capture within string...
+    $forward_step = min($forward_step, $MAX_WIDTH);
+    my $last_match_marker
+        = (q{ } x ($str_pos - max(0,$forward_step)))
+        . ( $nested_because eq 'failed'       ? q{}
+          : $is_capture && $forward_step == 1 ? 'V'
+          : $is_capture && $forward_step > 1  ? '\\' . ('_' x ($forward_step-2)) . '/'
+          :                                      '^' x $forward_step
+          )
+        ;
+
+
     # Reconfigure string within visible window...
     my $match_start;
-    ($str_src, $str_pos, $match_start)
+    ($str_src, $str_pos, $match_start, $last_match_marker)
         = _make_window(
                  text => $str_src,
                   pos => $str_pos,
                 start => $Regexp::Grammars::match_start_pos,
                  heat => substr($data_mode, -7) eq 'heatmap' ?  $history_of{string_heatmap} : [],
+               marker => $last_match_marker,
             no_window => $no_window,
           );
 
+    # Trim match start position...
     if ($match_start > $str_pos) {
         $match_start = $str_pos;
     }
 
+    # Colour match marker...
+    $last_match_marker
+        = substr($last_match_marker,0,1) eq '^' ? _match_colourer($last_match_marker, 'reverse')
+        :                                         _info_colourer($last_match_marker);
+
     # Draw the string with a positional marker...
     _visualize $data_mode, $NO_MATCH,
-        q{ }, q{ } x $str_pos, _info_colourer('|' .  $backtrack);
+        q{ }, _info_colourer( substr(q{ } x $str_pos . '|' .  $backtrack, 0, $MAX_WIDTH-2) );
     _visualize $data_mode, $NO_MATCH,
         q{ }, q{ } x $match_start, _match_colourer($MATCH_DRAG x ($str_pos-$match_start)), _info_colourer('V');
     $str_src = # Heatmap is already coloured...
@@ -1590,14 +1609,7 @@ sub _build_visualization {
     _visualize $data_mode, $NO_MATCH, q{'}, $str_src, q{'};  # String itself
 
     # Draw a marker for any match or capture within the string...
-    $forward_step = min($forward_step, $MAX_WIDTH);
-    my $last_match_marker
-        = $nested_because eq 'failed'       ? q{}
-        : $is_capture && $forward_step == 1 ? _info_colourer('V')
-        : $is_capture && $forward_step > 1  ? _info_colourer('\\' . ('_' x ($forward_step-2)) . '/')
-        :                                     _match_colourer('^' x $forward_step, 'reverse')
-        ;
-    _visualize $data_mode, $NO_MATCH, q{ }, q{ } x ($str_pos - max(0,$forward_step)), $last_match_marker;
+    _visualize $data_mode, $NO_MATCH, q{ }, $last_match_marker;
 
     # Windowed displays show the title last...
     if (!$no_window) {
@@ -2301,15 +2313,20 @@ sub _build_heatmap {
 # Extract a window into string to fit it on screen...
 sub _make_window {
     my %arg = @_;
+
     my $src       =    $arg{text}  // q{};
     my $pos       =    $arg{pos}   // 0;
     my $start_pos =    $arg{start} // 0;
     my @heatmap   = @{ $arg{heat}  // [] };
     my $window    =   !$arg{no_window};
+    my $marker    =   $arg{marker};
 
-    # Extend heatmap to length of text...
+    # Extend heatmap and marker to length of text...
     if (@heatmap) {
         push @heatmap, (0) x (length($src) - @heatmap);
+    }
+    if ($marker) {
+        $marker .= q{ } x (length($src) - length($marker));
     }
 
     # Crop to window, if necessary...
@@ -2323,6 +2340,9 @@ sub _make_window {
         if (length($src) > $window_width) {
             # At the start of the string, chop off the end...
             if ($pos <= $mid_window) {
+                if ($marker) {
+                    $marker = substr($marker, 0, $window_width);
+                }
                 $src = substr($src, 0, $window_width);
                 substr($src,-3,3,q{...});
             }
@@ -2333,6 +2353,9 @@ sub _make_window {
                 if (@heatmap) {
                     @heatmap = @heatmap[length($src)-$window_width..$#heatmap];
                 }
+                if ($marker) {
+                    $marker = substr($marker, length($src)-$window_width, $window_width);
+                }
                 $src       = substr($src, -$window_width);
                 substr($src,0,3,q{...});
             }
@@ -2341,6 +2364,9 @@ sub _make_window {
                 $src        = substr($src, $pos-$mid_window+1, $window_width);
                 if (@heatmap) {
                     @heatmap= splice(@heatmap, $pos-$mid_window+1, $window_width);
+                }
+                if ($marker) {
+                    $marker = substr($marker, $pos-$mid_window+1, $window_width);
                 }
                 $start_pos -= $pos;
                 $pos        = $window_width/2;
@@ -2356,7 +2382,12 @@ sub _make_window {
         $src = _build_heatmap($src, \@heatmap);
     }
 
-    return ($src, $pos, max($start_pos,0));
+    # Trim trailing whitespace from marker...
+    while ($marker && substr($marker,-1) eq q{ }) {
+        substr($marker, -1) = q{};
+    }
+
+    return ($src, $pos, max($start_pos,0), $marker);
 }
 
 # Colour message appropriately...
@@ -2400,7 +2431,7 @@ sub _colourer_for {
 
 # Set up interaction as spiffily as possible...
 
-if (require Term::ReadKey) {
+if (eval{ require Term::ReadKey }) {
     *_interact = sub {
         # No interactions when piping output to a filehandle...
         return 'c' if $lexical_config->{save_to_fh};
@@ -2600,7 +2631,7 @@ Regexp::Debugger - Visually debug regexes in-place
 
 =head1 VERSION
 
-This document describes Regexp::Debugger version 0.001001
+This document describes Regexp::Debugger version 0.001002
 
 
 =head1 SYNOPSIS
@@ -2983,7 +3014,7 @@ You specified something else (or misspelled one of the above).
 The value associated with the C<'save_to'> option is expected
 to be a filehandle opened for writing, or else a string containing
 the name of a file that can be opened for writing. You either passed
-an unopened filehandle, an unwritable filename, or something that 
+an unopened filehandle, an unwritable filename, or something that
 wasn't a plausible file. Alternatively, if you passed a filepath,
 was the directory not accessible to, or writeable by, you?
 

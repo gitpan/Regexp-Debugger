@@ -17,3 +17,13 @@ Revision history for Regexp-Debugger
       [Changes in eval inconsistent with previous behaviour]
       (thanks alierak!)
 
+
+
+0.001002  Sat Jul 21 16:53:23 2012
+
+    - Fixed windowing of capture and backtracking graphics
+
+    - Removed dependency on Term::ReadKey
+      (thanks everyone who reported it!)
+
+    - Added microdocs for bin/rxrx (thanks Salvatore)
