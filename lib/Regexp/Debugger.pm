@@ -2,8 +2,9 @@ package Regexp::Debugger;
 
 use warnings;
 use strict;
+eval "use feature 'evalbytes'";         # Experimental fix for Perl 5.16
 
-our $VERSION = '0.001000';
+our $VERSION = '0.001001';
 
 # Give an accurate warning if used with an antique Perl...
 BEGIN {
@@ -1412,7 +1413,7 @@ sub _revisualize {
             while ($step < @{$history_of{$display_mode}}) {
                 _print $CLEAR_SCREEN;
                 _print $history_of{$display_mode}[$step++]{display};
-                _sleep(0.1);
+                _pause(0.1);
             }
             last STEP;
         }
@@ -1699,11 +1700,6 @@ sub _clean_str {
     }
 
     return $str;
-}
-
-# Hi-res sleep function...
-sub _sleep {
-    select undef, undef, undef, shift;
 }
 
 # Set up a JSON encoder...
@@ -2014,7 +2010,7 @@ sub _report_event {
         state $skip_rate = 0.1;
         state $MIN_SKIP_RATE = 0.001;
         $skip_rate = max($MIN_SKIP_RATE, $skip_rate * 0.98);
-        _sleep($skip_rate);
+        _pause($skip_rate);
 
         # Skip interactions if current mode does not require them...
         last INPUT if $event_type ne 'break' && (
@@ -2430,6 +2426,18 @@ else {
 
 #====[ REPL (a.k.a. rxrx) ]=======================
 
+# Deal with v5.16 weirdness...
+BEGIN {
+    if ($] >= 5.016) {
+        require feature;
+        feature->import('evalbytes');
+        *evaluate = \&CORE::evalbytes;
+    }
+    else {
+        *evaluate = sub{ eval shift };
+    }
+}
+
 my $FROM_START = 0;
 
 sub rxrx {
@@ -2487,7 +2495,7 @@ sub rxrx {
             # Compile and save the new regex...
             if ($+{cmd} eq q{/}) {
                 $input_regex = $+{data};
-                $regex = eval qq{\n# line 0 rxrx\nuse Regexp::Debugger; qr{$+{data}}x;};
+                $regex = evaluate qq{\n# line 0 rxrx\nuse Regexp::Debugger; qr{$+{data}}x;};
 
                 # Report any errors...
                 print "$@\n" if $@;
@@ -2495,10 +2503,16 @@ sub rxrx {
 
             # Otherwise compile the string (interpolated or not)...
             elsif ($+{cmd} eq q{"}) {
-                $string = eval qq{"$+{data}"};
+                $string = evaluate qq{"$+{data}"};
+
+                # Report any errors...
+                print "$@\n" if $@;
             }
             elsif ($+{cmd} eq q{'}) {
-                $string = eval qq{'$+{data}'};
+                $string = evaluate qq{'$+{data}'};
+
+                # Report any errors...
+                print "$@\n" if $@;
             }
         }
 
@@ -2586,7 +2600,7 @@ Regexp::Debugger - Visually debug regexes in-place
 
 =head1 VERSION
 
-This document describes Regexp::Debugger version 0.001000
+This document describes Regexp::Debugger version 0.001001
 
 
 =head1 SYNOPSIS

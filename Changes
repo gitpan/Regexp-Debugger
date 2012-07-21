@@ -7,3 +7,13 @@ Revision history for Regexp-Debugger
 0.001000  Thu Jul 19 09:49:39 2012
 
     First public release
+
+
+0.001001  Sat Jul 21 10:29:42 2012
+
+    - Removed redundant _sleep() (thanks Peter)
+
+    - Patched rxrx problem in 5.16
+      [Changes in eval inconsistent with previous behaviour]
+      (thanks alierak!)
+
