@@ -4,7 +4,7 @@ use warnings;
 use strict;
 eval "use feature 'evalbytes'";         # Experimental fix for Perl 5.16
 
-our $VERSION = '0.001002';
+our $VERSION = '0.001003';
 
 # Give an accurate warning if used with an antique Perl...
 BEGIN {
@@ -87,9 +87,13 @@ my $MATCH_DRAG = ' ';
 # Will heatmaps be visible???
 my $heatmaps_invisible;
 
-# Simulate Term::ANSIColor (badly, if necessary)...
+# Simulate Term::ANSIColor badly (if necessary)...
 CHECK {
-    if (!eval{ require Term::ANSIColor }) {
+    my $can_color
+        = ( $^O ne 'MSWin32' or eval { require Win32::Console::ANSI } )
+          && eval { require Term::ANSIColor };
+
+    if ( !$can_color ) {
         *Term::ANSIColor::colored = sub { return shift };
         $MATCH_DRAG         = '_';
         $heatmaps_invisible = 1;
@@ -157,9 +161,15 @@ sub _load_config {
     my $explicit_config_ref = shift();
     my %config;
 
+    # Work out where to look...
+    my $home_dir = $ENV{HOME};
+    if (!$home_dir && eval { require File::HomeDir } ) {
+        $home_dir = File::HomeDir->my_home;
+    }
+
     # Find config file...
     CONFIG_FILE:
-    for my $config_file ('.rxrx', "$ENV{HOME}/.rxrx") {
+    for my $config_file ( '.rxrx', ( $home_dir ? "$home_dir/.rxrx" : () ) ) {
 
         # Is this a readable config file???
         open my $fh, '<', $config_file
@@ -2631,7 +2641,7 @@ Regexp::Debugger - Visually debug regexes in-place
 
 =head1 VERSION
 
-This document describes Regexp::Debugger version 0.001002
+This document describes Regexp::Debugger version 0.001003
 
 
 =head1 SYNOPSIS
@@ -3034,6 +3044,16 @@ The following modules are used when available:
 Text colouring only works if this module can be loaded.
 Otherwise, all output will be monochromatic.
 
+=item Win32::Console::ANSI
+
+Under Windows, text colouring also requires that this module can be loaded.
+Otherwise, all output will be monochromatic.
+
+=item File::HomeDir
+
+If it can't find a useful value for C<$ENV{HOME}>, Regexp::Debugger
+attempts to use this module to determine the user's home directory,
+in order to search for a F<.rxrx> config file.
 
 =item JSON::XS
 

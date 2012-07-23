@@ -27,3 +27,12 @@ Revision history for Regexp-Debugger
       (thanks everyone who reported it!)
 
     - Added microdocs for bin/rxrx (thanks Salvatore)
+
+
+0.001003  Mon Jul 23 10:19:14 2012
+
+    - Patched to support seaching for .rxrx under Windows
+      (thanks Christian)
+
+    - Patched to support color text under Windows
+      (thanks Christian)
