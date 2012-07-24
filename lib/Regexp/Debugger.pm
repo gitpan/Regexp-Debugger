@@ -4,7 +4,7 @@ use warnings;
 use strict;
 eval "use feature 'evalbytes'";         # Experimental fix for Perl 5.16
 
-our $VERSION = '0.001003';
+our $VERSION = '0.001004';
 
 # Give an accurate warning if used with an antique Perl...
 BEGIN {
@@ -1963,7 +1963,7 @@ sub _report_event {
         my $data = {
             regex_pos => $regex_pos,
             str_pos   => $str_pos,
-            event     => { %{$event_ref} },
+            event     => { %{$event_ref}, msg => $msg },
         };
 
         # But sanitize any procedural msg...
@@ -2641,7 +2641,7 @@ Regexp::Debugger - Visually debug regexes in-place
 
 =head1 VERSION
 
-This document describes Regexp::Debugger version 0.001003
+This document describes Regexp::Debugger version 0.001004
 
 
 =head1 SYNOPSIS

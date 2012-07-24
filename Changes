@@ -36,3 +36,9 @@ Revision history for Regexp-Debugger
 
     - Patched to support color text under Windows
       (thanks Christian)
+
+
+0.001004  Wed Jul 25 08:12:02 2012
+
+    - Adjusted messages for JSON output
+      (thanks Glen!)
