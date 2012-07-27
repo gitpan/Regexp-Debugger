@@ -4,7 +4,7 @@ use warnings;
 use strict;
 eval "use feature 'evalbytes'";         # Experimental fix for Perl 5.16
 
-our $VERSION = '0.001004';
+our $VERSION = '0.001005';
 
 # Give an accurate warning if used with an antique Perl...
 BEGIN {
@@ -1497,7 +1497,7 @@ sub _build_visualization {
     # Visualize capture vars, if available...
     my $max_name_width = 1 + max map {length} 0, keys %capture;
     CAPVAR:
-    for my $name (sort keys %capture) {
+    for my $name (do{ no warnings 'numeric'; sort { substr($a,1) <=> substr($b,1) } keys %capture}) {
         # Remove any captures that are invalidated by backtracking...
         if ($capture{$name}{start_pos} > $regex_pos) {
             delete @{$capture{$name}}{'from','to'};
@@ -2641,7 +2641,7 @@ Regexp::Debugger - Visually debug regexes in-place
 
 =head1 VERSION
 
-This document describes Regexp::Debugger version 0.001004
+This document describes Regexp::Debugger version 0.001005
 
 
 =head1 SYNOPSIS

@@ -42,3 +42,10 @@ Revision history for Regexp-Debugger
 
     - Adjusted messages for JSON output
       (thanks Glen!)
+
+
+0.001005  Fri Jul 27 19:09:04 2012
+
+    - Use numeric sorting order for capture variables
+      (thanks Ken)
+
