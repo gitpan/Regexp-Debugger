@@ -4,7 +4,7 @@ use warnings;
 use strict;
 eval "use feature 'evalbytes'";         # Experimental fix for Perl 5.16
 
-our $VERSION = '0.001006';
+our $VERSION = '0.001007';
 
 # Give an accurate warning if used with an antique Perl...
 BEGIN {
@@ -635,7 +635,7 @@ sub _build_debugging_regex {
     (?(DEFINE)
         # Miscellaneous useful pattern fragments...
         (?<COMMENT>    [(][?][#] (?! \s* BREAK \s* ) .*? [)] | \# [^\n]* (?= \n | \z )  )
-        (?<CHARSET>    \[ \^?+ \\?+ \]?+ (?: \[:\w+:\] | [^]])*+ \] )
+        (?<CHARSET>    \[ \^?+ \\?+ \]?+ (?: \[:\w+:\] | \\[\[\]] | [^]] )*+ \] )
         (?<IDENTIFIER> [^\W\d]\w*                                   )
         (?<CODEBLOCK>  \{  (?: (?&CODEBLOCK) | . )*?   \}           )
         (?<MODIFIERS>  [adlupimsx]+ (?: - [imsx]+ )?
@@ -2817,7 +2817,7 @@ Regexp::Debugger - Visually debug regexes in-place
 
 =head1 VERSION
 
-This document describes Regexp::Debugger version 0.001006
+This document describes Regexp::Debugger version 0.001007
 
 
 =head1 SYNOPSIS
