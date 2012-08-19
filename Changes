@@ -49,3 +49,24 @@ Revision history for Regexp-Debugger
     - Use numeric sorting order for capture variables
       (thanks Ken)
 
+
+
+0.001006  Sun Aug 19 10:40:20 2012
+
+    - Added 'f' command to interactive mode
+      (like 'm', but runs to next failure-to-match instead)
+
+    - Added 'd' command to describe static regex
+
+    - Made heatmap and description colours lexically configurable
+
+    - Added 'x' command to exit program entirely
+
+    - Added handling of ^D (synonym for 'q')
+      (Thanks, Mike)
+
+    - Fixed bug with \N{...} 
+      (Thanks, Tom)
+
+    - Fixed nasty bug in exporting lexical hint via $^H
+      (Thanks, Tom!)

@@ -4,7 +4,7 @@ use warnings;
 use strict;
 eval "use feature 'evalbytes'";         # Experimental fix for Perl 5.16
 
-our $VERSION = '0.001005';
+our $VERSION = '0.001006';
 
 # Give an accurate warning if used with an antique Perl...
 BEGIN {
@@ -34,6 +34,26 @@ my $interaction_mode; # ...step-by-step, jump to match, or continue?
 my $display_mode;     # ...how is the match being visualized at present?
 
 
+# Colours for heatmaps...
+my @DEF_HEAT_COLOUR = (
+    'white  on_black',    #  0-20  percentile
+    'cyan   on_blue',     # 20-40  percentile
+    'blue   on_cyan',     # 40-60  percentile
+    'red    on_yellow',   # 60-80  percentile
+    'yellow on_red',      # 80-100 percentile
+);
+
+# Colours for detailed regex descriptions...
+my %DESCRIPTION_COLOUR = (
+    desc_sep_col   => 'blue on_black underline',
+    desc_regex_col => 'white on_black',
+    desc_text_col  => 'cyan on_black',
+);
+
+# Colour for error messages...
+my $ERR_COL = 'red';
+
+
 # Default config which any explicit config modifies...
 my @SHOW_WS_OPTIONS = qw< compact  visible  original >;
 my %DEFAULT_CONFIG = (
@@ -46,6 +66,9 @@ my %DEFAULT_CONFIG = (
     match_col => '   bold cyan on_black',
     fail_col  => '      yellow on_red',
 
+    # Colour scheme for regex descriptions...
+    %DESCRIPTION_COLOUR,
+
     # Where debugging info is written to (undef --> STDOUT)...
     save_to_fh    => undef,
 
@@ -55,28 +78,17 @@ my %DEFAULT_CONFIG = (
 
 # The current config...
 my $lexical_config = \%DEFAULT_CONFIG;
-
-# Colours for heatmaps...
-my @HEAT_COLOUR = (
-    'white  on_black',
-    'cyan   on_blue',
-    'blue   on_cyan',
-    'red    on_yellow',
-    'yellow on_red',
-);
-
-# Colour for error messages...
-my $ERR_COL = 'red';
-
 # Simulate print() and say() on appropriate filehandle...
 sub _print {
     if (!$lexical_config->{save_to_fh}) {
+        no warnings 'utf8';
         print @_;
     }
 }
 
 sub _say {
     if (!$lexical_config->{save_to_fh}) {
+        no warnings 'utf8';
         say @_;
     }
 }
@@ -86,6 +98,9 @@ my $MATCH_DRAG = ' ';
 
 # Will heatmaps be visible???
 my $heatmaps_invisible;
+
+# Indent unit for hierarchical display...
+my $INDENT = q{  };
 
 # Simulate Term::ANSIColor badly (if necessary)...
 CHECK {
@@ -108,7 +123,7 @@ sub import {
     shift;
 
     # Export re 'eval' semantics...
-    $^H = 0x00200000;
+    $^H |= 0x00200000;
 
     # Unpack the arguments...
     if (@_ % 2) {
@@ -206,6 +221,27 @@ sub _load_config {
             croak "Unknown 'show_ws' option: '$show_ws'";
         }
     }
+
+    # Configure heatmap colour scheme...
+    my @heatmap_cols =
+        map { $config{$_} }
+        sort {
+            # Sort numerically (if feasible), else alphabetically...
+            my $a_key = $a =~ /(\d+)/ ? $1 : undef;
+            my $b_key = $b =~ /(\d+)/ ? $1 : undef;
+            defined $a_key && defined $b_key
+                ? $a_key <=> $b_key
+                : $a     cmp $b;
+        }
+        grep { /^heatmap/ }
+        keys %config;
+
+    if (!@heatmap_cols) {
+        @heatmap_cols = @DEF_HEAT_COLOUR;
+    }
+
+    $config[-1]{heatmap_col} = \@heatmap_cols;
+
 
     # Configure initial display mode...
     my $display = $config{display};
@@ -549,8 +585,8 @@ sub _build_debugging_regex {
                       | H                           (?{$construct_desc = 'a non-horizontal-whitespace character'})
                       | k \< \w++ \>                (?{$construct_desc = 'a named back-reference'})
                       | n                           (?{$construct_desc = 'a newline character'})
-                      | N                           (?{$construct_desc = 'a non-newline character'})
                       | N \{ [^\}]++ \}             (?{$construct_desc = 'a named character'})
+                      | N                           (?{$construct_desc = 'a non-newline character'})
                       | p    \w++                   (?{$construct_desc = 'a Unicode property'})
                       | P \w+                       (?{$construct_desc = 'a negative Unicode property'})
                       | P \{ [^\}]++ \}             (?{$construct_desc = 'a negative Unicode property'})
@@ -628,13 +664,18 @@ sub _build_debugging_regex {
         # What are we debugging???
         my $construct = $+{construct};
 
+        # How deep in parens???
+        my $depth  = scalar(@paren_stack);
+        my $indent = $INDENT x $depth;
+
         # All events get this standard information...
         my %std_info = (
             construct_type => (first { /^_/ } keys %+),
             construct      => $construct,
             regex_pos      => length($clean_regex),
             quantifier     => $+{quantifier} // q{},
-            depth          => scalar(@paren_stack),
+            depth          => $depth,
+            indent         => $indent,
         );
 
         # Record the construct for display...
@@ -706,6 +747,8 @@ sub _build_debugging_regex {
                         %std_info,
                         event_type => 'end',
                         msg        => 'End of successful alternative',
+                        desc       => 'Or...',
+                        indent     => $INDENT x ($depth-1),
                   })
                 . $construct
                 . _build_event($regex_ID, $event_ID => {
@@ -741,16 +784,18 @@ sub _build_debugging_regex {
             elsif (exists $+{case_start}) {
                   _build_event($regex_ID, $event_ID => {
                         %std_info,
-                        event_type     => 'pre',
-                        msg            => "Starting $construct_desc",
+                        event_type => 'pre',
+                        msg        => "Starting $construct_desc",
+                        desc       => 'The start of ' . $construct_desc,
                   })
             }
 
             elsif (exists $+{case_end}) {
                   _build_event($regex_ID, $event_ID => {
                         %std_info,
-                        event_type     => 'pre',
-                        msg            => 'End of autocasing',
+                        event_type => 'pre',
+                        msg        => 'End of autocasing',
+                        desc       => 'The end of autocasing',
                   })
             }
 
@@ -764,6 +809,7 @@ sub _build_debugging_regex {
                         %std_info,
                         event_type     => 'pre',
                         msg            => 'Starting quoted sequence',
+                        desc           => 'The start of a quoted sequence',
                         shared_str_pos => $shared_quote_pos,
                   })
             }
@@ -778,6 +824,7 @@ sub _build_debugging_regex {
                         %std_info,
                         event_type     => 'post',
                         msg            => 'End of quoted sequence',
+                        desc           => 'The end of a quoted sequence',
                         shared_str_pos => $shared_pos,
                   })
             }
@@ -820,6 +867,7 @@ sub _build_debugging_regex {
                         matchable      => 1,
                         event_type     => 'pre',
                         msg            => 'Trying an autoquoted literal character',
+                        desc           => 'Match an autoquoted literal character',
                         shared_str_pos => \$shared_str_pos,
                   })
                 . quotemeta($construct)
@@ -855,6 +903,7 @@ sub _build_debugging_regex {
                         matchable      => 1,
                         event_type     => 'pre',
                         msg            => "Trying $construct_desc $quantifier_desc",
+                        desc           => "Match $construct_desc $quantifier_desc",
                         shared_str_pos => \$shared_str_pos,
                   })
                 . $subpattern_call_prefix
@@ -878,6 +927,7 @@ sub _build_debugging_regex {
                         matchable  => 0,
                         event_type => 'action',
                         msg        => 'Executing code block',
+                        desc       => 'Execute a block of code',
                   })
                 . $construct
             }
@@ -898,6 +948,7 @@ sub _build_debugging_regex {
                         matchable  => 0,
                         event_type => 'action',
                         msg        => 'Executing code block of postponed subpattern',
+                        desc       => "Execute a code block, then match the block's final value",
                   })
                 . $construct
                 . _build_event($regex_ID, $event_ID-3 => {
@@ -932,6 +983,7 @@ sub _build_debugging_regex {
                         matchable  => 0,
                         event_type => 'action',
                         msg        => "Forgetting everything matched to this point",
+                        desc       => 'Pretend the final match starts here',
                   })
                 . $construct
                 . '(?{ local $Regexp::Grammars::match_start_pos = pos() })'
@@ -948,6 +1000,7 @@ sub _build_debugging_regex {
                         matchable  => 1,
                         event_type => 'pre',
                         msg        => "Testing if $construct_desc",
+                        desc       => "Match only if $construct_desc",
                   })
                 . $construct
                 . _build_event($regex_ID, $event_ID => {
@@ -969,6 +1022,7 @@ sub _build_debugging_regex {
                         matchable  => 1,
                         event_type => 'pre',
                         msg        => 'Executing a control',
+                        desc       => 'Execute a backtracking control',
                   })
                 . $construct
                 . _build_event($regex_ID, $event_ID => {
@@ -985,15 +1039,17 @@ sub _build_debugging_regex {
                 push @paren_stack, {
                     is_capture     => 0,
                     construct_type => '_DEFINE_block',
+                    is_definition  => 1,
                 };
 
                 # Insert and event to report skipping the entire block...
                 _build_event($regex_ID, $event_ID => {
                         %std_info,
                         %{$paren_stack[-1]},
-                        matchable      => 0,
-                        event_type     => 'pre',
-                        msg            => 'Skipping definitions',
+                        matchable  => 0,
+                        event_type => 'pre',
+                        msg        => 'Skipping definitions',
+                        desc       => 'The start of a definition block (skipped during matching)',
                   })
                 . $construct . '(?:'
             }
@@ -1004,9 +1060,10 @@ sub _build_debugging_regex {
                 _build_event($regex_ID, $event_ID => {
                         %std_info,
                         %{$paren_stack[-1]},
-                        matchable      => 0,
-                        event_type     => 'compile',
-                        msg            => 'Changing modifiers',
+                        matchable  => 0,
+                        event_type => 'compile',
+                        msg        => 'Changing modifiers',
+                        desc       => 'Change current modifiers',
                   })
                 . $construct
             }
@@ -1026,8 +1083,9 @@ sub _build_debugging_regex {
                 . _build_event($regex_ID, $event_ID => {
                     %std_info,
                     %{$paren_stack[-1]},
-                    event_type     => 'pre',
-                    msg            => 'Testing condition',
+                    event_type => 'pre',
+                    msg        => 'Testing condition',
+                    desc       => 'The start of a conditional block',
                   })
                 . $construct;
             }
@@ -1046,8 +1104,9 @@ sub _build_debugging_regex {
                 . _build_event($regex_ID, $event_ID => {
                     %std_info,
                     %{$paren_stack[-1]},
-                    event_type     => 'pre',
-                    msg            => 'Starting branch-resetting group',
+                    event_type => 'pre',
+                    msg        => 'Starting branch-resetting group',
+                    desc       => 'The start of a branch-resetting group',
                   })
                 . $construct;
             }
@@ -1068,8 +1127,9 @@ sub _build_debugging_regex {
                 . _build_event($regex_ID, $event_ID => {
                     %std_info,
                     %{$paren_stack[-1]},
-                    event_type     => 'pre',
-                    msg            => 'Starting non-capturing group' . $addendum,
+                    event_type => 'pre',
+                    msg        => 'Starting non-capturing group' . $addendum,
+                    desc       => 'The start of a non-capturing group',
                   })
                 . $construct;
             }
@@ -1087,8 +1147,9 @@ sub _build_debugging_regex {
                 . _build_event($regex_ID, $event_ID => {
                     %std_info,
                     %{$paren_stack[-1]},
-                    event_type     => 'pre',
-                    msg            => 'Starting non-backtracking group',
+                    event_type => 'pre',
+                    msg        => 'Starting non-backtracking group',
+                    desc       => 'The start of a non-backtracking group',
                   })
                 . '(?>';
             }
@@ -1113,8 +1174,9 @@ sub _build_debugging_regex {
                     . _build_event($regex_ID, $event_ID => {
                         %std_info,
                         %{$paren_stack[-1]},
-                        event_type     => 'pre',
-                        msg            => 'Testing for ' . $LOOKTYPE{$construct},
+                        event_type => 'pre',
+                        msg        => 'Testing for ' . $LOOKTYPE{$construct},
+                        desc       => 'Match ' . lc $LOOKTYPE{$construct},
                     });
                 }
                 else {
@@ -1123,8 +1185,9 @@ sub _build_debugging_regex {
                     . _build_event($regex_ID, $event_ID => {
                         %std_info,
                         %{$paren_stack[-1]},
-                        event_type     => 'pre',
-                        msg            => 'Starting ' . $LOOKTYPE{$construct},
+                        event_type => 'pre',
+                        msg        => 'Starting ' . $LOOKTYPE{$construct},
+                        desc       => 'Match ' . $LOOKTYPE{$construct},
                     })
                     . $construct;
                 }
@@ -1154,8 +1217,9 @@ sub _build_debugging_regex {
                 . _build_event($regex_ID, $event_ID => {
                     %std_info,
                     %{$paren_stack[-1]},
-                    event_type     => 'pre',
-                    msg            => 'Capture to $'.$next_capture_group,
+                    event_type => 'pre',
+                    msg        => 'Capture to $'.$next_capture_group,
+                    desc       => "The start of a capturing block (\$$next_capture_group)",
                   })
                 . '(?:';
             }
@@ -1194,8 +1258,9 @@ sub _build_debugging_regex {
                 . _build_event($regex_ID, $event_ID => {
                     %std_info,
                     %{$paren_stack[-1]},
-                    event_type     => 'pre',
-                    msg            => $capture_names_for[$next_capture_group],
+                    event_type => 'pre',
+                    msg        => $capture_names_for[$next_capture_group],
+                    desc       => "The start of a named capturing block (also \$$next_capture_group)",
                   })
                 . '(?:';
             }
@@ -1214,6 +1279,7 @@ sub _build_debugging_regex {
                 my $msg = $paren_data->{is_capture} && ref $paren_data->{capture_name}
                                                          ? $paren_data->{capture_name}
                         : $paren_data->{is_capture}      ? 'End of ' . $paren_data->{capture_name}
+                        : $paren_data->{is_definition}   ? 'End of definition block'
                         : $paren_data->{is_branch_reset} ? 'End of branch-resetting group'
                         : $paren_data->{is_lookaround}   ? 'End of ' . $paren_data->{is_lookaround}
                         : $paren_data->{is_conditional}  ? 'End of conditional group'
@@ -1225,8 +1291,11 @@ sub _build_debugging_regex {
                 . _build_event($regex_ID, $event_ID => {
                     %std_info,
                     %{$paren_data},
-                    event_type     => 'post',
-                    msg            => $msg,
+                    event_type => 'post',
+                    msg        => $msg,
+                    desc       => ( ref $msg ? 'The end of the named capturing block' : 'The e' . substr($msg,1) ),
+                    depth      => $depth - 1,
+                    indent     => $INDENT x ($depth - 1),
                   })
                 . ')'
             }
@@ -1237,9 +1306,10 @@ sub _build_debugging_regex {
                 _build_event($regex_ID, $event_ID => {
                         %std_info,
                         %{$paren_stack[-1]},
-                        matchable      => 0,
-                        event_type     => 'break',
-                        msg            => 'Breaking at (and skipping) comment',
+                        matchable  => 0,
+                        event_type => 'break',
+                        msg        => 'Breaking at (and skipping) comment',
+                        desc       => 'Ignore this comment (but Regexp::Debugger will break here)',
                   })
             }
 
@@ -1249,9 +1319,10 @@ sub _build_debugging_regex {
                 _build_event($regex_ID, $event_ID => {
                         %std_info,
                         %{$paren_stack[-1]},
-                        matchable      => 0,
-                        event_type     => 'skip',
-                        msg            => 'Skipping comment',
+                        matchable  => 0,
+                        event_type => 'skip',
+                        msg        => 'Skipping comment',
+                        desc       => 'Ignore this comment',
                   })
             }
 
@@ -1318,11 +1389,19 @@ sub _new_visualize {
 
 # Output the args and also add them to the current animation "frame"
 sub _visualize {
-    my ($data_mode, $is_match, @output) = @_;
+    my ($data_mode, @output) = @_;
+    state $NO_MATCH = 0;
+    state $NO_FAIL  = 0;
+    _visualize_matchfail($data_mode, $NO_MATCH, $NO_FAIL, @output);
+}
+
+sub _visualize_matchfail {
+    my ($data_mode, $is_match, $is_fail, @output) = @_;
     my $output = join q{}, @output;
     if ($display_mode eq $data_mode) {
         _say $output;
     }
+    $history_of{$data_mode}[-1]{is_fail}   = 1 if $is_fail;
     $history_of{$data_mode}[-1]{is_match}  = 1 if $is_match;
     $history_of{$data_mode}[-1]{display}  .= $output . "\n";
 }
@@ -1362,6 +1441,11 @@ sub _revisualize {
             kill 9, $$;
         }
 
+        # An 'x' exits the process...
+        elsif ($input eq 'x') {
+            exit(0);
+        }
+
         # A <CTRL-L> redraws the screen...
         elsif ($input eq "\cL") {
             next STEP;
@@ -1370,6 +1454,12 @@ sub _revisualize {
         # Step back (if possible)...
         elsif ($input eq '-') {
             $step = max(0, $step-1);
+            next STEP;
+        }
+
+        # Display explanation of regex...
+        elsif ($input eq 'd') {
+            _show_regex_description($regex_ID);
             next STEP;
         }
 
@@ -1429,7 +1519,7 @@ sub _revisualize {
         }
 
         # Quit entirely...
-        elsif ($input eq 'q') {
+        elsif ($input eq 'q' || $input eq "\cD") {
             last STEP;
         }
 
@@ -1443,6 +1533,15 @@ sub _revisualize {
         elsif ($input eq 'm') {
             $step++;
             while (!$history_of{$display_mode}[$step]{is_match}) {
+                last STEP if $step == @{$history_of{$display_mode}}-1;
+                $step++;
+            }
+        }
+
+        # Step forward to fail...
+        elsif ($input eq 'f') {
+            $step++;
+            while (!$history_of{$display_mode}[$step]{is_fail}) {
                 last STEP if $step == @{$history_of{$display_mode}}-1;
                 $step++;
             }
@@ -1463,22 +1562,21 @@ sub _build_visualization {
 
     my ($regex_ID, $regex_src, $regex_pos, $construct_len,
         $str_src, $str_pos,
-        $is_match, $is_trying, $is_capture,
+        $is_match, $is_fail, $is_trying, $is_capture,
         $backtrack, $forward_step, $nested_because,
         $msg, $colourer, $no_window, $step)
                 = @{$named_args_ref}{qw(
                     regex_ID regex_src regex_pos construct_len
                     str_src str_pos
-                    is_match is_trying is_capture
+                    is_match is_fail is_trying is_capture
                     backtrack forward_step nested_because
                     msg colourer no_window step
                 )};
 
     # Clear screen...
-    state $NO_MATCH = 0;
     _new_visualize($data_mode);
     if (!$no_window) {
-        _visualize $data_mode, $NO_MATCH, q{} for 1..$MAX_HEIGHT;
+        _visualize $data_mode, q{} for 1..$MAX_HEIGHT;
     }
 
     # Remember originals...
@@ -1487,7 +1585,7 @@ sub _build_visualization {
 
     # Unwindowed displays show the title first...
     if ($no_window) {
-        _visualize $data_mode, $NO_MATCH,
+        _visualize $data_mode,
                 _info_colourer(
                     qq{\n[\u$data_mode of regex at $state{$regex_ID}{location}]\n\n}
                   . qq{         [step: $step]}
@@ -1516,15 +1614,15 @@ sub _build_visualization {
         }
 
         # Display capture var and value...
-        _visualize $data_mode, $NO_MATCH,
+        _visualize $data_mode,
             _info_colourer(sprintf qq{%*s = '%s'}, $max_name_width, $name, $cap_str);
     }
 
     # Leave a gap...
-    _visualize $data_mode, $NO_MATCH, q{} for 1..2;
+    _visualize $data_mode, q{} for 1..2;
 
     # Show matching...
-    _visualize $data_mode, $is_match;
+    _visualize_matchfail $data_mode, $is_match, $is_fail;
 
     # Reconfigure regex within visible window...
     ($regex_src, $regex_pos)
@@ -1542,20 +1640,20 @@ sub _build_visualization {
 
     # Draw the regex with a message and a positional marker...
     if ($data_mode ne 'full_heatmap') {
-        _visualize $data_mode, $NO_MATCH, q{ }, q{ } x $display_width, $colourer->($msg);
-        _visualize $data_mode, $NO_MATCH, q{ }, q{ } x $regex_pos    , $colourer->('|');
-        _visualize $data_mode, $NO_MATCH, q{ }, q{ } x $regex_pos    , $colourer->('V') x ($construct_len || 1);
+        _visualize $data_mode, q{ }, q{ } x $display_width, $colourer->($msg);
+        _visualize $data_mode, q{ }, q{ } x $regex_pos    , $colourer->('|');
+        _visualize $data_mode, q{ }, q{ } x $regex_pos    , $colourer->('V') x ($construct_len || 1);
     }
     else {
-        _visualize $data_mode, $NO_MATCH, q{ }, q{ } x $regex_pos , _info_colourer('|');
-        _visualize $data_mode, $NO_MATCH, q{ }, q{ } x $regex_pos , _info_colourer('V' x ($construct_len || 1) );
+        _visualize $data_mode, q{ }, q{ } x $regex_pos , _info_colourer('|');
+        _visualize $data_mode, q{ }, q{ } x $regex_pos , _info_colourer('V' x ($construct_len || 1) );
     }
 
     # Draw regex itself...
-    _visualize $data_mode, $NO_MATCH, q{/}, $regex_src, q{/};
+    _visualize $data_mode, q{/}, $regex_src, q{/};
 
     # Leave a gap...
-    _visualize $data_mode, $NO_MATCH, q{ } for 1..2;
+    _visualize $data_mode, q{ } for 1..2;
 
     # Create marker for any match or capture within string...
     $forward_step = min($forward_step, $MAX_WIDTH);
@@ -1592,9 +1690,9 @@ sub _build_visualization {
         :                                         _info_colourer($last_match_marker);
 
     # Draw the string with a positional marker...
-    _visualize $data_mode, $NO_MATCH,
+    _visualize $data_mode,
         q{ }, _info_colourer( substr(q{ } x $str_pos . '|' .  $backtrack, 0, $MAX_WIDTH-2) );
-    _visualize $data_mode, $NO_MATCH,
+    _visualize $data_mode,
         q{ }, q{ } x $match_start, _match_colourer($MATCH_DRAG x ($str_pos-$match_start)), _info_colourer('V');
     $str_src = # Heatmap is already coloured...
                substr($data_mode, -7) eq 'heatmap' ?
@@ -1616,14 +1714,14 @@ sub _build_visualization {
                     _fail_colourer(  substr($str_src, 0, $match_start) )
                   . _match_colourer( substr($str_src, $match_start, $str_pos-$match_start), 'underline' )
                   . substr($str_src, $str_pos);
-    _visualize $data_mode, $NO_MATCH, q{'}, $str_src, q{'};  # String itself
+    _visualize $data_mode, q{'}, $str_src, q{'};  # String itself
 
     # Draw a marker for any match or capture within the string...
-    _visualize $data_mode, $NO_MATCH, q{ }, $last_match_marker;
+    _visualize $data_mode, q{ }, $last_match_marker;
 
     # Windowed displays show the title last...
     if (!$no_window) {
-        _visualize $data_mode, $NO_MATCH,
+        _visualize $data_mode,
                 _info_colourer(
                     qq{\n[\u$data_mode of regex at $state{$regex_ID}{location}]}
                   . qq{         [step: $step]}
@@ -1633,12 +1731,12 @@ sub _build_visualization {
     # Special case: full heatmaps are reported as a table too...
     if ( $data_mode eq 'full_heatmap' ) {
         # Tabulate regex...
-        _visualize $data_mode, $NO_MATCH, _info_colourer("\n\nHeatmap for regex:\n");
-        _visualize $data_mode, $NO_MATCH, _build_tabulated_heatmap($raw_regex_src, $history_of{match_heatmap});
+        _visualize $data_mode, _info_colourer("\n\nHeatmap for regex:\n");
+        _visualize $data_mode, _build_tabulated_heatmap($raw_regex_src, $history_of{match_heatmap});
 
         # Tabulate string...
-        _visualize $data_mode, $NO_MATCH, _info_colourer("\n\nHeatmap for string:\n");
-        _visualize $data_mode, $NO_MATCH, _build_tabulated_heatmap($raw_str_src, $history_of{string_heatmap});
+        _visualize $data_mode, _info_colourer("\n\nHeatmap for string:\n");
+        _visualize $data_mode, _build_tabulated_heatmap($raw_str_src, $history_of{string_heatmap});
     }
 }
 
@@ -1651,6 +1749,9 @@ sub _build_tabulated_heatmap {
     my $max_heat = max(1, map { $_ // 0 } @{$heatmap_ref});
     my @heat = map { ($_//0) / $max_heat } @{$heatmap_ref};
     my $count_size = length($max_heat);
+
+    # Determine colours to be used...
+    my @HEAT_COLOUR = @{$lexical_config->{heatmap_col}};
 
     # Accumulate graph
     my @graph;
@@ -1918,7 +2019,7 @@ sub _report_event {
     }
 
     # Compute indent for message (from paren depth + subcall depth)...
-    my $indent = q{  } x ($event_ref->{depth} + $subpattern_depth);
+    my $indent = $INDENT x ($event_ref->{depth} + $subpattern_depth);
 
     # Indicate any backtracking...
     if (length($event_str) > 1 || length($event_regex) > 1) {
@@ -2008,6 +2109,7 @@ sub _report_event {
         str_src        =>  $str_src,
         str_pos        =>  $str_pos,
         is_match       =>  $is_match,
+        is_fail        =>  $is_fail,
         is_trying      =>  $is_trying,
         is_capture     =>  $is_capture,
         backtrack      =>  $backtrack,
@@ -2036,10 +2138,16 @@ sub _report_event {
 
         # Skip interactions if current mode does not require them...
         last INPUT if $event_type ne 'break' && (
+                           # Skip-to-match mode...
                            $interaction_mode eq 'm'
                         && !$is_match
                         && index($msg,'Back-tracked') < 0
                       ||
+                           # Skip-to-fail mode...
+                           $interaction_mode eq 'f'
+                        && !$is_fail
+                      ||
+                           # Skip-to-end mode...
                            $interaction_mode eq 'c'
                         && $construct_type ne '_END'
                     );
@@ -2060,12 +2168,23 @@ sub _report_event {
             kill 9, $$;
         }
 
+        # An 'x' exits the process...
+        elsif ($input eq 'x') {
+            exit(0);
+        }
+
         # A <CTRL-L> redraws the screen...
         elsif ($input eq "\cL") {
             _print $history_of{$display_mode}[-1]{display};
             if ($display_mode eq 'events' || $display_mode eq 'JSON') {
                 say _info_colourer( qq{\n\n[\u$display_mode of regex at $state{$regex_ID}{location}]} );
             }
+            next INPUT;
+        }
+
+        # Display explanation of regex...
+        elsif ($input eq 'd') {
+            _show_regex_description($regex_ID);
             next INPUT;
         }
 
@@ -2076,7 +2195,7 @@ sub _report_event {
         }
 
         # Quit all debugging???
-        elsif ($input eq 'q') {
+        elsif ($input eq 'q' || $input eq "\cD") {
             $interaction_quit = 1;
             last INPUT;
         }
@@ -2084,7 +2203,7 @@ sub _report_event {
         # Step backwards...
         elsif ($input eq '-') {
             ($input) = _revisualize($regex_ID);
-            if ($input eq 'q') {
+            if ($input eq 'q' || $input eq "\cD") {
                 $interaction_quit = 1;
                 last INPUT;
             }
@@ -2145,7 +2264,7 @@ sub _report_event {
 #        }
 
         # Change of interaction mode???
-        elsif ($input ~~ ['m','s','c']) {
+        elsif ($input ~~ ['f','m','s','c']) {
             $interaction_mode = $input;
             last INPUT;
         }
@@ -2206,6 +2325,57 @@ sub _save_to_fh {
     $lexical_config->{save_to_fh} = $fh;
 }
 
+sub _show_regex_description {
+    my $regex_ID = shift;
+
+    # How wide to display regex components...
+    my $MAX_DISPLAY = 20;
+
+    # The info we're displaying...
+    my $info = $state{$regex_ID};
+
+    # Coloured separator...
+    my $separator = Term::ANSIColor::colored(
+                        q{ } x $MAX_WIDTH . "\n",
+                        $lexical_config->{desc_sep_col}
+                    );
+
+    # Page the output...
+    my $pager  = $ENV{PAGER} // 'more';
+    if ($pager eq 'less') {
+        $pager .= ' -R';
+    }
+    open my $STDOUT, '|-', $pager or return;
+
+    # Build the display...
+    say {$STDOUT}
+        $separator
+      . join q{},
+        map {
+            my $indent    = $info->{$_}{indent};
+            my $construct = Term::ANSIColor::colored(
+                                sprintf('%-*s', $MAX_DISPLAY, $indent . $info->{$_}{construct}),
+                                $lexical_config->{desc_regex_col}
+                            );
+            my $desc      = Term::ANSIColor::colored(
+                                $indent .  $info->{$_}{desc},
+                                $lexical_config->{desc_text_col}
+                            );
+            if (length($indent . $info->{$_}{construct}) > 20) {
+                  $construct . "\n"
+                . q{ } x ($MAX_DISPLAY+2) . "$desc\n"
+                . $separator
+            }
+            else {
+                  "$construct  $desc\n"
+                . $separator
+            }
+        }
+        sort { $a <=> $b }
+        grep { /^\d+$/ && exists $info->{$_}{desc} }
+        keys %$info;
+}
+
 sub _show_help {
     say <<'END_HELP';
 ________________________________________________/ Help \______
@@ -2213,6 +2383,7 @@ ________________________________________________/ Help \______
   Motion:    s : step forwards
              - : step backwards
              m : continue to next partial match
+             f : continue to next partial failure
              c : continue to end of full match
          <RET> : repeat last motion
 
@@ -2220,13 +2391,15 @@ ________________________________________________/ Help \______
              e : change to event log
              h : change to heatmaps
              j : change to JSON representation
+             d : describe the regex in detail
 
   Snapshot:  V : take snapshot of current visualization
              E : take snapshot of current event log
              H : take snapshot of current heatmaps
              J : take snapshot of current JSON representation
 
-  Control:   q : quit debugger and finish matching silently
+  Control:   q : quit debugger and continue program
+             x : exit debugger and terminate program
 
 ______________________________________________________________
 END_HELP
@@ -2305,6 +2478,9 @@ sub _save_snapshot {
 
 sub _build_heatmap {
     my ($str, $count_ref) = @_;
+
+    # Determine colours to be used...
+    my @HEAT_COLOUR = @{$lexical_config->{heatmap_col}};
 
     # Normalize counts to match @HEAT_COLOUR entries...
     my $max = max 1, map { $_ // 0 } @{$count_ref};
@@ -2558,7 +2734,7 @@ sub rxrx {
         }
 
         # Quit if quitting requested...
-        elsif ($input =~ /^ \s* [qQ]/x) {
+        elsif ($input =~ /^ \s* [xXqQ]/x) {
             say q{};
             last INPUT;
         }
@@ -2568,11 +2744,11 @@ sub rxrx {
             print "\n" x 2;
             say '____________________________________________/ Help \____';
             say '                                         ';
-            say '    / : Enter a pattern';
-            say "    ' : Enter a new literal string";
-            say '    " : Enter a new double-quoted string';
-            say '    m : Match current string against current pattern';
-            say '    q : quit debugger and finish matching';
+            say '     / : Enter a pattern';
+            say "     ' : Enter a new literal string";
+            say '     " : Enter a new double-quoted string';
+            say '     m : Match current string against current pattern';
+            say 'q or x : quit debugger and exit';
             next INPUT;
         }
 
@@ -2641,7 +2817,7 @@ Regexp::Debugger - Visually debug regexes in-place
 
 =head1 VERSION
 
-This document describes Regexp::Debugger version 0.001005
+This document describes Regexp::Debugger version 0.001006
 
 
 =head1 SYNOPSIS
@@ -2681,6 +2857,10 @@ The debugger offers the following commands:
 
 : Continue forward to the next event that matches something
 
+=item C<f>
+
+: Continue forward to the next event that fails to match something
+
 =item C<c>
 
 : Continue forward until the regex matches or completely backtracks
@@ -2704,6 +2884,10 @@ The debugger offers the following commands:
 =item C<j>
 
 : Switch to the underlying JSON data
+
+=item C<d>
+
+: Describe each component of the regex in detail
 
 =item C<V>
 
@@ -2735,7 +2919,13 @@ When prompted for a filename:
 
 =item C<q>
 
-: Quit the debugger and finish matching without any further visualization
+: Quit the debugger and finish matching this regex without any further
+  visualization. The program continues to execute and other regexes may
+  still be debugged.
+
+=item C<x>
+
+: Exit the debugger and the entire program immediately.
 
 =back
 
@@ -2783,30 +2973,89 @@ C<show_ws> key:
 =head2 Colour configuration
 
 The following keys reconfigure the colours with which the debugger
-displays text messages:
+displays various information:
+
+=head3 Colours for debugging information
 
 =over
 
 =item *
 
-try_col
+C<try_col>
+
+The colour in which attempts to match part of the regex are reported
 
 =item *
 
-match_col
+C<match_col>
+
+The colour in which successful matches of part of the regex are reported
 
 =item *
 
-fail_col
+C<fail_col>
+
+The colour in which unsuccessful matches of part of the regex are reported
 
 =item *
 
-info_col
+C<info_col>
+
+The colour in which other information is reported
 
 =back
 
-The corresponding values are any combination of the following (i.e. the
-colour specifications supported by the Term::ANSIColor module):
+=head3 Colours for regex descriptions
+
+=over
+
+=item *
+
+C<desc_regex_col>
+
+The colour in which components of the regex are displayed
+
+=item *
+
+C<desc_text_col>
+
+The colour in which descriptions of regex components are displayed
+
+=item *
+
+C<desc_sep_col>
+
+The colour in which separators between component descriptions are displayed.
+
+=back
+
+=head3 Colours for heatmaps
+
+Any key that starts with C<heatmap>... is treated as a specifier for an
+equal part of the total range of each heatmap.
+
+These names are sorted (numerically, if possible; otherwise
+alphabetically) and the corresponding values are then used to display
+equal percentiles from the heatmap.
+
+For example (using numeric sorting):
+
+    heatmap_0_colour      : cyan   on_black   #  0-33rd  percentile
+    heatmap_50_colour     : yellow on_black   # 34-66th  percentile
+    heatmap_100_colour    : red    on_black   # 67-100th percentile
+
+Or, equivalently (using alphabetic sorting):
+
+    heatmap_infrequent    : cyan   on_black   #  0-33rd  percentile
+    heatmap_more_frequent : yellow on_black   # 34-66th  percentile
+    heatmap_very_frequent : red    on_black   # 67-100th percentile
+
+
+=head3 Colour specifications
+
+The colour values that may be used in any of the above colour
+specifications are any combination of the following (i.e. the
+colour specifiers supported by the Term::ANSIColor module):
 
          clear           reset             bold            dark
          faint           underline         underscore      blink
@@ -2823,12 +3072,22 @@ colour specifications supported by the Term::ANSIColor module):
          on_bright_blue  on_bright_magenta on_bright_cyan  on_bright_white
 
 
-The default colour configuration is:
+The default colour configurations are:
 
     try_col    :  bold magenta  on_black
     match_col  :  bold cyan     on_black
     fail_col   :       yellow   on_red
     info_col   :       white    on_black
+
+    desc_regex_col  :  white    on_black
+    desc_text_col   :  cyan     on_black
+    desc_sep_col    :  blue     on_black underline
+
+    heatmap__20th_percentile  :  white   on_black
+    heatmap__40th_percentile  :  cyan    on_blue
+    heatmap__60th_percentile  :  blue    on_cyan
+    heatmap__80th_percentile  :  red     on_yellow
+    heatmap_100th_percentile  :  yellow  on_red
 
 
 =head2 Output configuration
