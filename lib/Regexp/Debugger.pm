@@ -4,7 +4,7 @@ use warnings;
 use strict;
 eval "use feature 'evalbytes'";         # Experimental fix for Perl 5.16
 
-our $VERSION = '0.001007';
+our $VERSION = '0.001008';
 
 # Give an accurate warning if used with an antique Perl...
 BEGIN {
@@ -643,6 +643,8 @@ sub _build_debugging_regex {
                     |  \^ [alupimsx]
         )
         (?<QUANTIFIER>
+            \s*
+            (?:
               [*][+]         (?{ $quantifier_desc = 'zero-or-more times (without backtracking)'          })
             | [*][?]         (?{ $quantifier_desc = 'zero-or-more times (as few as possible)'            })
             | [*]            (?{ $quantifier_desc = 'zero-or-more times (as many as possible)'           })
@@ -655,6 +657,7 @@ sub _build_debugging_regex {
             | {\d+,?\d*}[+]  (?{ $quantifier_desc = 'the specified number of times (without backtracking)' })
             | {\d+,?\d*}[?]  (?{ $quantifier_desc = 'the specified number of times (as few as possible)'   })
             | {\d+,?\d*}     (?{ $quantifier_desc = 'the specified number of times (as many as possible)'  })
+            )
         )
     )
     }{
@@ -2817,7 +2820,7 @@ Regexp::Debugger - Visually debug regexes in-place
 
 =head1 VERSION
 
-This document describes Regexp::Debugger version 0.001007
+This document describes Regexp::Debugger version 0.001008
 
 
 =head1 SYNOPSIS
@@ -3209,9 +3212,10 @@ is a convenient shorthand for:
 
 =head2 C</x>-mode comments
 
-The current implementation cannot always distinguish whether a regex has
-an external /x modifier (and hence, what whitespace and comment
-characters mean). Whitespace is handled correctly in either case, but
+Due to limitations in the Perl C<overload::constant()> mechanism, the
+current implementation cannot always distinguish whether a regex has an
+external /x modifier (and hence, what whitespace and comment characters
+mean). Whitespace is handled correctly in almost all cases, but
 comments are not.
 
 When processing a C<# comment to end of line> within a regex, the module
@@ -3221,7 +3225,30 @@ Note that this limitation is likely to be corrected in a future release.
 
 This limitation does not affect the handling of comments in
 C<(?x:...)> and C<(?-x:...)> blocks within the regex. These are
-always correctly handled.
+always correctly handled, so explicitly using one of these blocks
+is a reliable workaround...as is always using the C</x> modifier
+on every debugged regex.
+
+As regards whitespace, the one case where the current implementation
+does not always correctly infer behaviour is where whitespace is used to
+separate a repetition qualifier from the atom it qualifies in a non-C</x>
+regex, such as:
+
+    / x + /
+
+Because the module defaults to assuming that regexes always have C</x> applied,
+this is always interpreted as:
+
+    /\ x+\ /x
+
+rather than what it really is, namely:
+
+    /\ x\ +\ /
+
+The most reliable workaround for the time being is either to always use
+C</x> on any regex, or never to separate repetition qualifiers from
+their preceding atoms.
+
 
 =head2 Multiple 'save_to' with the same target
 

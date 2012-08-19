@@ -77,3 +77,10 @@ Revision history for Regexp-Debugger
     - Fixed missing \[ \] handling in character classes
       (thanks, Thomas)
 
+
+
+0.001008  Mon Aug 20 09:44:46 2012
+
+    - Made whitespace-separated repetition quantifiers default to /x semantics
+      and documented the issue in LIMITATIONS
+      (Thanks, Tom)
