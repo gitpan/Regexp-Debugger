@@ -84,3 +84,11 @@ Revision history for Regexp-Debugger
     - Made whitespace-separated repetition quantifiers default to /x semantics
       and documented the issue in LIMITATIONS
       (Thanks, Tom)
+
+
+0.001009  Sat Sep 22 14:37:33 2012
+
+    - Added history mechanism to rxrx (if a recent IO::Prompter installed)
+
+    - Added cursor motions over input to rxrx (if a recent IO::Prompter installed)
+

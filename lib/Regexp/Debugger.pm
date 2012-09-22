@@ -4,7 +4,7 @@ use warnings;
 use strict;
 eval "use feature 'evalbytes'";         # Experimental fix for Perl 5.16
 
-our $VERSION = '0.001008';
+our $VERSION = '0.001009';
 
 # Give an accurate warning if used with an antique Perl...
 BEGIN {
@@ -2697,6 +2697,10 @@ sub rxrx {
 
     # Otherwise, be interactive...
 
+    # Track input history...
+    my $str_history   = [];
+    my $regex_history = [];
+
     # Start with empty data...
     my $input_regex = '';
     my $regex       = '';
@@ -2709,6 +2713,16 @@ sub rxrx {
     while (1) {
         my $input = _prompt('>');
 
+        # String history mode?
+        if ($input =~ /^['"]$/) {
+            $input = _rxrx_history($str_history);
+        }
+
+        # Regex history mode?
+        elsif ($input eq '/') {
+            $input = _rxrx_history($regex_history);
+        }
+
         # Are we updating the regex or string???
         if ($input =~ m{^ (?<cmd> [/"'])  (?<data> .*?) (?<endcmd> \k<cmd>)? \z }x) {
 
@@ -2719,6 +2733,9 @@ sub rxrx {
 
                 # Report any errors...
                 print "$@\n" if $@;
+
+                # Remember it...
+                push @{$regex_history}, $input;
             }
 
             # Otherwise compile the string (interpolated or not)...
@@ -2727,12 +2744,18 @@ sub rxrx {
 
                 # Report any errors...
                 print "$@\n" if $@;
+
+                # Remember it...
+                push @{$str_history}, $input;
             }
             elsif ($+{cmd} eq q{'}) {
                 $string = evaluate qq{'$+{data}'};
 
                 # Report any errors...
                 print "$@\n" if $@;
+
+                # Remember it...
+                push @{$str_history}, $input;
             }
         }
 
@@ -2750,7 +2773,19 @@ sub rxrx {
             say '     / : Enter a pattern';
             say "     ' : Enter a new literal string";
             say '     " : Enter a new double-quoted string';
+            if (eval { require IO::Prompter }) {
+                say '';
+                say 'CTRL-R : History completion - move backwards one input';
+                say 'CTRL-N : History completion - move forwards one input';
+                say '';
+                say 'CTRL-B : Cursor motion - move back one character';
+                say 'CTRL-F : Cursor motion - move forwards one character';
+                say 'CTRL-A : Cursor motion - move to start of input';
+                say 'CTRL-E : Cursor motion - move to end of input';
+            }
+            say '';
             say '     m : Match current string against current pattern';
+            say '';
             say 'q or x : quit debugger and exit';
             next INPUT;
         }
@@ -2800,14 +2835,18 @@ sub _pause {
 }
 
 # Simple prompter...
-sub _prompt {
-    my ($prompt) = @_;
+*_prompt = eval { require IO::Prompter }
+    ? sub { 
+            return IO::Prompter::prompt(@_)
+      }
+    : sub {
+            my ($prompt) = @_;
 
-    print "$prompt ";
-    my $input = readline *STDIN;
-    chomp $input;
-    return $input;
-}
+            print "$prompt ";
+            my $input = readline *STDIN;
+            chomp $input;
+            return $input;
+      };
 
 
 1; # Magic true value required at end of module
@@ -2820,7 +2859,7 @@ Regexp::Debugger - Visually debug regexes in-place
 
 =head1 VERSION
 
-This document describes Regexp::Debugger version 0.001008
+This document describes Regexp::Debugger version 0.001009
 
 
 =head1 SYNOPSIS
@@ -3176,6 +3215,15 @@ against the current string, visualizing the match in the usual way.
 Any line beginning with C<q> causes the REPL to quit.
 
 =back
+
+If the IO::Prompter module (version 0.004 or later) is available, the
+input process remembers its history, which you can recall by typing
+C<CTRL-R>. Repeated C<CTRL-R>'s step successively backwards through earlier
+inputs. C<CTRL-N> steps successfully forward again.
+You can then use C<CTRL-B>/C<CTRL-F>/C<CTRL-A>/C<CTRL-E> to move the
+cursor around the line of recalled input, to delete or insert
+characters. This is useful for modifying and retrying a recently entered
+regex or string.
 
 
 =head2 Debugging regexes from a dumped session
