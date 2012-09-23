@@ -92,3 +92,8 @@ Revision history for Regexp-Debugger
 
     - Added cursor motions over input to rxrx (if a recent IO::Prompter installed)
 
+
+
+0.001010  Sun Sep 23 21:19:08 2012
+
+    - Added ability to pass flags to regexes specified in rxrx REPL

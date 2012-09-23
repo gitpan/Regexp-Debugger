@@ -4,7 +4,7 @@ use warnings;
 use strict;
 eval "use feature 'evalbytes'";         # Experimental fix for Perl 5.16
 
-our $VERSION = '0.001009';
+our $VERSION = '0.001010';
 
 # Give an accurate warning if used with an antique Perl...
 BEGIN {
@@ -2704,10 +2704,11 @@ sub rxrx {
     # Start with empty data...
     my $input_regex = '';
     my $regex       = '';
+    my $regex_flags = '';
     my $string      = '';
 
     # And display it...
-    _display($string, $input_regex);
+    _display($string, $input_regex,q{});
 
     INPUT:
     while (1) {
@@ -2724,12 +2725,13 @@ sub rxrx {
         }
 
         # Are we updating the regex or string???
-        if ($input =~ m{^ (?<cmd> [/"'])  (?<data> .*?) (?<endcmd> \k<cmd>)? \z }x) {
+        if ($input =~ m{^ (?<cmd> [/"'])  (?<data> .*?) (?<endcmd> \k<cmd> (?<flags> [imsxlaud]*) )? \s*  \z }x) {
 
             # Compile and save the new regex...
             if ($+{cmd} eq q{/}) {
                 $input_regex = $+{data};
-                $regex = evaluate qq{\n# line 0 rxrx\nuse Regexp::Debugger; qr{$+{data}}x;};
+                $regex_flags = $+{flags} // 'x';
+                $regex = evaluate qq{\n# line 0 rxrx\nuse Regexp::Debugger; qr{$+{data}}$regex_flags;};
 
                 # Report any errors...
                 print "$@\n" if $@;
@@ -2796,17 +2798,17 @@ sub rxrx {
         }
 
         # Redisplay the new regex and/or string...
-        _display($string, $input_regex);
+        _display($string, $input_regex, $regex_flags);
     }
 }
 
 # Lay out the regex and string as does Regexp::Debugger...
 sub _display {
-    my ($string, $regex) = @_;
+    my ($string, $regex, $flags) = @_;
 
     say "\n" x 100;
     say Term::ANSIColor::colored('regex:', 'white');
-    say qq{/$regex/\n\n\n};
+    say qq{/$regex/$flags\n\n\n};
     say Term::ANSIColor::colored('string:', 'white');
     say qq{'$string'\n\n\n};
 }
@@ -2859,7 +2861,7 @@ Regexp::Debugger - Visually debug regexes in-place
 
 =head1 VERSION
 
-This document describes Regexp::Debugger version 0.001009
+This document describes Regexp::Debugger version 0.001010
 
 
 =head1 SYNOPSIS
@@ -3199,11 +3201,14 @@ between them:
 =item *
 
 Any line starting with a C</> is treated as a new regex to match with.
+The closing C</> may be omitted. If the closing C</> is supplied, any
+one or more of the following flags may be specified immediately after
+it: C<x>, C<i>, C<m>, C<s>, C<a>, C<u>, C<d>, C<l>.
 
 =item *
 
 Any line starting with a C<'> or C<"> is treated as a new string to match
-against.
+against. The corresponding closing delimiter may be omitted.
 
 =item *
 
@@ -3212,7 +3217,11 @@ against the current string, visualizing the match in the usual way.
 
 =item *
 
-Any line beginning with C<q> causes the REPL to quit.
+Any line beginning with C<q> or C<x> causes the REPL to quit and exit.
+
+=item *
+
+Any line beginning with C<?> invokes the help listing for the REPL.
 
 =back
 
