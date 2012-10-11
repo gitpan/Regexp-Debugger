@@ -97,3 +97,15 @@ Revision history for Regexp-Debugger
 0.001010  Sun Sep 23 21:19:08 2012
 
     - Added ability to pass flags to regexes specified in rxrx REPL
+
+
+0.001011  Thu Oct 11 19:22:47 2012
+
+    - Added tracking of $^N variable
+      (thanks Frederic!)
+
+    - Various minor tweaks
+
+    - Fixed bug in charset parsing (thanks Geunyoung Park)
+
+    - Improved atom parsing

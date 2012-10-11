@@ -4,7 +4,7 @@ use warnings;
 use strict;
 eval "use feature 'evalbytes'";         # Experimental fix for Perl 5.16
 
-our $VERSION = '0.001010';
+our $VERSION = '0.001011';
 
 # Give an accurate warning if used with an antique Perl...
 BEGIN {
@@ -561,7 +561,7 @@ sub _build_debugging_regex {
                 (?{$quantifier_desc = ''; $construct_desc = 'a literal sequence'})
             |
                 (?{$quantifier_desc = '';})
-                (?<_self_matching>  \w   )  (?<quantifier> (?&QUANTIFIER) )?
+                (?<_self_matching>  (?&NONMETA)   )  (?<quantifier> (?&QUANTIFIER) )?
                 (?{$construct_desc = 'a literal character'})
             |
                 (?{$quantifier_desc = '';})
@@ -635,7 +635,7 @@ sub _build_debugging_regex {
     (?(DEFINE)
         # Miscellaneous useful pattern fragments...
         (?<COMMENT>    [(][?][#] (?! \s* BREAK \s* ) .*? [)] | \# [^\n]* (?= \n | \z )  )
-        (?<CHARSET>    \[ \^?+ \\?+ \]?+ (?: \[:\w+:\] | \\[\[\]] | [^]] )*+ \] )
+        (?<CHARSET>    \[ \^?+ \\?+ \]?+ (?: \[:\w+:\] | \\[\[\]\\] | [^]] )*+ \] )
         (?<IDENTIFIER> [^\W\d]\w*                                   )
         (?<CODEBLOCK>  \{  (?: (?&CODEBLOCK) | . )*?   \}           )
         (?<MODIFIERS>  [adlupimsx]+ (?: - [imsx]+ )?
@@ -659,6 +659,7 @@ sub _build_debugging_regex {
             | {\d+,?\d*}     (?{ $quantifier_desc = 'the specified number of times (as many as possible)'  })
             )
         )
+        (?<NONMETA>  [\w~`!%&=:;"'<>,/-] )
     )
     }{
         # Which event is this???
@@ -958,14 +959,14 @@ sub _build_debugging_regex {
                         %std_info,
                         matchable  => 0,
                         event_type => 'action',
-                        msg        => sub { "Code block returned: $^R" },
+                        msg        => sub { "Code block returned: '$^R'" },
                   })
                   # Second event pair reports match of subpattern the block returned...
                 . _build_event($regex_ID, $event_ID-2 => {
                         %std_info,
                         matchable      => 1,
                         event_type     => 'pre',
-                        msg            => sub{ "Trying: $^R" },
+                        msg            => sub{ "Trying: qr{$^R}" },
                         shared_str_pos => \$shared_str_pos,
                   })
                 . '(??{ $^R })'
@@ -1400,7 +1401,7 @@ sub _visualize {
 
 sub _visualize_matchfail {
     my ($data_mode, $is_match, $is_fail, @output) = @_;
-    my $output = join q{}, @output;
+    my $output = join q{}, grep {defined} @output;
     if ($display_mode eq $data_mode) {
         _say $output;
     }
@@ -1619,6 +1620,23 @@ sub _build_visualization {
         # Display capture var and value...
         _visualize $data_mode,
             _info_colourer(sprintf qq{%*s = '%s'}, $max_name_width, $name, $cap_str);
+    }
+
+    # Visualize special var, if used in regex...
+    _visualize $data_mode, q{};
+    if (index($raw_regex_src, '$^N') >= 0 && defined $^N) {
+        my $special_val = $^N;
+
+        # Truncate captured value to maximum width by removing middle...
+        my $cap_len = length($special_val);
+        if ($cap_len > $MAX_WIDTH) {
+            my $middle = $MAX_WIDTH/2 - 2;
+            substr($special_val, $middle, -$middle, '....');
+        }
+
+        # Display capture var and value...
+        _visualize $data_mode,
+            _info_colourer(sprintf qq{%*s = '%s'}, $max_name_width, '$^N', $special_val);
     }
 
     # Leave a gap...
@@ -2861,7 +2879,7 @@ Regexp::Debugger - Visually debug regexes in-place
 
 =head1 VERSION
 
-This document describes Regexp::Debugger version 0.001010
+This document describes Regexp::Debugger version 0.001011
 
 
 =head1 SYNOPSIS
