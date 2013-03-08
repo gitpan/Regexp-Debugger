@@ -4,7 +4,7 @@ use warnings;
 use strict;
 eval "use feature 'evalbytes'";         # Experimental fix for Perl 5.16
 
-our $VERSION = '0.001011';
+our $VERSION = '0.001012';
 
 # Give an accurate warning if used with an antique Perl...
 BEGIN {
@@ -148,8 +148,9 @@ sub import {
 
             my $lexical_scope = (caller 1)[10]{'Regexp::Debugger::lexical_scope'};
 
-            # In active scope and really a regex...
-            if (_module_is_active() && $type =~ /qq?/) {
+            # In active scope and really a regex and interactivity possible...
+            my $is_interactive = defined $arg{save_to} || -t *STDIN && -t *STDOUT;
+            if (_module_is_active() && $type =~ /qq?/ && $is_interactive) {
                 return bless {cooked=>$cooked, lexical_scope=>$lexical_scope}, 'Regexp::Debugger::Precursor';
             }
             # Ignore everything else...
@@ -454,18 +455,55 @@ sub _build_debugging_regex {
                 \\E
             )
         |
-            (?<closing_paren>       [)]  )
+            (?{$quantifier_desc = '';})
+            (?<closing_paren>       [)]  )  (?<quantifier> (?&QUANTIFIER) )?
         |
             (?<whitespace>
-                (?(?{ $show_ws eq 'compact' }) (?<whitespace_chars>  (?: \s++ | (?&COMMENT))++) | (?!) )
+                (?(?{ $show_ws eq 'compact' })
+                    (?<whitespace_chars>
+                        ( (?: \s | (?&COMMENT) )+ )
+                        (?! (?&UNSPACED_QUANTIFIER) ) (?{ $quantifier_desc = q{} })
+                        (?{$construct_desc = $^N})
+                    |
+                        ( \s )
+                        (?{$construct_desc = $^N})
+                        (?<quantifier> (?&UNSPACED_QUANTIFIER) )
+                    )
+                |
+                    (?!)
+                )
             |
-                (?(?{ $show_ws eq 'visible' }) (?<whitespace_chars>  [^\S\n\t]++ ) | (?!) )
+                (?(?{ $show_ws eq 'visible' })
+                    (?<whitespace_chars>
+                        ( [^\S\n\t]+ )
+                        (?! (?&UNSPACED_QUANTIFIER) ) (?{ $quantifier_desc = q{} })
+                        (?{$construct_desc = $^N})
+                    |
+                        ( [^\S\n\t] )
+                        (?{$construct_desc = $^N})
+                        (?<quantifier> (?&UNSPACED_QUANTIFIER) )
+                    )
+                |
+                    (?!)
+                )
             |
-                (?(?{ $show_ws eq 'original'}) (?<whitespace_chars>  [^\S\n\t]   ) | (?!) )
+                (?(?{ $show_ws eq 'original'})
+                    (?<whitespace_chars>
+                        ( [^\S\n\t] )
+                        (?{$construct_desc = $^N})
+                        (?<quantifier> (?&UNSPACED_QUANTIFIER) )?
+                    )
+                |
+                    (?!)
+                )
             |
                 (?<newline_char>  \n  )
+                (?<quantifier> (?&UNSPACED_QUANTIFIER) )?
+                (?{$construct_desc = 'newline'})
             |
                 (?<tab_char>      \t  )
+                (?<quantifier> (?&UNSPACED_QUANTIFIER) )?
+                (?{$construct_desc = 'tab'})
             )
         |
             (?<break_comment>
@@ -642,9 +680,8 @@ sub _build_debugging_regex {
                     |  - [imsx]+
                     |  \^ [alupimsx]
         )
-        (?<QUANTIFIER>
-            \s*
-            (?:
+        (?<QUANTIFIER> \s* (?&UNSPACED_QUANTIFIER) )
+        (?<UNSPACED_QUANTIFIER>
               [*][+]         (?{ $quantifier_desc = 'zero-or-more times (without backtracking)'          })
             | [*][?]         (?{ $quantifier_desc = 'zero-or-more times (as few as possible)'            })
             | [*]            (?{ $quantifier_desc = 'zero-or-more times (as many as possible)'           })
@@ -657,7 +694,6 @@ sub _build_debugging_regex {
             | {\d+,?\d*}[+]  (?{ $quantifier_desc = 'the specified number of times (without backtracking)' })
             | {\d+,?\d*}[?]  (?{ $quantifier_desc = 'the specified number of times (as few as possible)'   })
             | {\d+,?\d*}     (?{ $quantifier_desc = 'the specified number of times (as many as possible)'  })
-            )
         )
         (?<NONMETA>  [\w~`!%&=:;"'<>,/-] )
     )
@@ -682,11 +718,14 @@ sub _build_debugging_regex {
             indent         => $indent,
         );
 
+#        use Data::Dumper 'Dumper';
+#        warn Dumper { std_info => \%std_info, '%+' => \%+ };
+
         # Record the construct for display...
         $clean_regex .=
-               exists $+{newline_char}      ?  ($std_info{construct} = q{\n})
-             : exists $+{tab_char}          ?  ($std_info{construct} = q{\t})
-             : exists $+{whitespace_chars}  ?  ($std_info{construct} = q{ })
+               exists $+{newline_char}      ?  ($std_info{construct} = q{\n} . $std_info{quantifier})
+             : exists $+{tab_char}          ?  ($std_info{construct} = q{\t} . $std_info{quantifier})
+             : exists $+{whitespace_chars}  ?  ($std_info{construct} = q{ } . $std_info{quantifier})
              :                                 $construct
              ;
 
@@ -770,16 +809,17 @@ sub _build_debugging_regex {
                 # Two events required, so add an extra ID...
                 $next_event_ID++;
 
-                my $construct_desc = join q{}, map { $_ eq "\n" ? '\n'
-                                                   : $_ eq "\t" ? '\t'
-                                                   :               $_
-                                                   } split '', $construct;
+                $construct_desc = join q{}, map { $_ eq "\n" ? '\n'
+                                                : $_ eq "\t" ? '\t'
+                                                : $_ eq " "  ? '\N{SPACE}'
+                                                :               $_
+                                                } split '', $construct_desc;
 
                 # Insert the appropriate events...
                 _build_whitespace_event($construct, $regex_ID, $event_ID => {
                         %std_info,
                         matchable      => 1,
-                        msg            => "Trying literal whitespace ('$construct_desc')",
+                        msg            => "Trying literal whitespace ('$construct_desc') $quantifier_desc",
                         shared_str_pos => \$shared_str_pos,
                 })
             }
@@ -1142,8 +1182,9 @@ sub _build_debugging_regex {
             elsif (exists $+{non_backtracking_paren}) {
                 # It's an unbalanced opening paren, so remember it on the stack...
                 push @paren_stack, {
-                    is_capture     => 0,
-                    construct_type => '_nonbacktracking_group',
+                    is_capture      => 0,
+                    is_nonbacktrack => 1,
+                    construct_type  => '_nonbacktracking_group',
                 };
 
                 # Insert an event to report the start of a non-backtracking group...
@@ -1287,12 +1328,20 @@ sub _build_debugging_regex {
                         : $paren_data->{is_branch_reset} ? 'End of branch-resetting group'
                         : $paren_data->{is_lookaround}   ? 'End of ' . $paren_data->{is_lookaround}
                         : $paren_data->{is_conditional}  ? 'End of conditional group'
+                        : $paren_data->{is_nonbacktrack} ? 'End of non-backtracking group'
                         :                                  'End of non-capturing group'
                         ;
 
+                if (length($std_info{quantifier})) {
+                    $msg .= " (matching $quantifier_desc)";
+                }
+
+                # Two events, so add an extra ID...
+                $event_ID = $next_event_ID++;
+
                 # Append an event reporting the completion of the group...
                   ')'
-                . _build_event($regex_ID, $event_ID => {
+                . _build_event($regex_ID, $event_ID-1 => {
                     %std_info,
                     %{$paren_data},
                     event_type => 'post',
@@ -1301,7 +1350,21 @@ sub _build_debugging_regex {
                     depth      => $depth - 1,
                     indent     => $INDENT x ($depth - 1),
                   })
+                . ($paren_data->{is_nonbacktrack}
+                        ? '|'
+                        . _build_event($regex_ID, $event_ID => {
+                            %std_info,
+                            %{$paren_data},
+                            event_type => 'failed_nonbacktracking',
+                            msg        => 'non-backtracking group',
+                            depth      => $depth - 1,
+                            indent     => $INDENT x ($depth - 1),
+                          })
+                        . q{(?!)}
+                        : q{}
+                  )
                 . ')'
+                . $std_info{quantifier};
             }
 
             # Skip comments...
@@ -1528,10 +1591,11 @@ sub _revisualize {
         }
 
         # Take a snapshot...
-        elsif ($input eq 'V') { _save_snapshot('full_visual',  $step) ; next STEP; }
-        elsif ($input eq 'H') { _save_snapshot('full_heatmap', $step) ; next STEP; }
-        elsif ($input eq 'E') { _save_snapshot('events',       $step) ; next STEP; }
-        elsif ($input eq 'J') { _save_snapshot('JSON',         $step) ; next STEP; }
+        elsif ($input eq 'V') { _save_snapshot('full_visual',  $step)     ; next STEP; }
+        elsif ($input eq 'H') { _save_snapshot('full_heatmap', $step)     ; next STEP; }
+        elsif ($input eq 'E') { _save_snapshot('events',       $step)     ; next STEP; }
+        elsif ($input eq 'J') { _save_snapshot('JSON',         $step)     ; next STEP; }
+        elsif ($input eq 'D') { _show_regex_description($regex_ID,'save') ; next STEP; }
 
         # Step forward to match...
         elsif ($input eq 'm') {
@@ -1988,8 +2052,11 @@ sub _report_event {
          ;
 
     # Report back-tracking occurred (but not when returning from named subpatterns)...
-    if ($backtrack && $construct_type ne '_named_subpattern_call') {
-        $msg = q{Back-tracked and re} . lc($msg);
+    if ($backtrack && $event_type eq 'failed_nonbacktracking') {
+        $msg = q{Back-tracking past } . lc($msg) . q{ without rematching};
+    }
+    elsif ($backtrack && $construct_type ne '_named_subpattern_call') {
+        $msg = q{Back-tracked within regex and re} . lc($msg);
     }
 
     # Track trying and matching...
@@ -2272,10 +2339,11 @@ sub _report_event {
         }
 
         # Take a snapshot...
-        elsif ($input eq 'V') { _save_snapshot('full_visual')  ; next INPUT; }
-        elsif ($input eq 'H') { _save_snapshot('full_heatmap') ; next INPUT; }
-        elsif ($input eq 'E') { _save_snapshot('events')       ; next INPUT; }
-        elsif ($input eq 'J') { _save_snapshot('JSON')         ; next INPUT; }
+        elsif ($input eq 'V') { _save_snapshot('full_visual')             ; next INPUT; }
+        elsif ($input eq 'H') { _save_snapshot('full_heatmap')            ; next INPUT; }
+        elsif ($input eq 'E') { _save_snapshot('events')                  ; next INPUT; }
+        elsif ($input eq 'J') { _save_snapshot('JSON')                    ; next INPUT; }
+        elsif ($input eq 'D') { _show_regex_description($regex_ID,'save') ; next INPUT; }
 
         # Require an explicit quit request at end of match...
 #        elsif ($construct_type eq '_END') {
@@ -2347,7 +2415,7 @@ sub _save_to_fh {
 }
 
 sub _show_regex_description {
-    my $regex_ID = shift;
+    my ($regex_ID, $save) = @_;
 
     # How wide to display regex components...
     my $MAX_DISPLAY = 20;
@@ -2356,17 +2424,24 @@ sub _show_regex_description {
     my $info = $state{$regex_ID};
 
     # Coloured separator...
-    my $separator = Term::ANSIColor::colored(
-                        q{ } x $MAX_WIDTH . "\n",
-                        $lexical_config->{desc_sep_col}
-                    );
+    my $separator = $save ? q{}
+                  :         Term::ANSIColor::colored(
+                                q{ } x $MAX_WIDTH . "\n",
+                                $lexical_config->{desc_sep_col}
+                            );
 
-    # Page the output...
-    my $pager  = $ENV{PAGER} // 'more';
-    if ($pager eq 'less') {
-        $pager .= ' -R';
+    # Direct the output...
+    my $STDOUT;
+    if ($save) {
+        $STDOUT = _prompt_for_file('description');
     }
-    open my $STDOUT, '|-', $pager or return;
+    else {
+        my $pager  = $ENV{PAGER} // 'more';
+        if ($pager eq 'less') {
+            $pager .= ' -R';
+        }
+        open $STDOUT, '|-', $pager or return;
+    }
 
     # Build the display...
     say {$STDOUT}
@@ -2374,14 +2449,19 @@ sub _show_regex_description {
       . join q{},
         map {
             my $indent    = $info->{$_}{indent};
-            my $construct = Term::ANSIColor::colored(
-                                sprintf('%-*s', $MAX_DISPLAY, $indent . $info->{$_}{construct}),
-                                $lexical_config->{desc_regex_col}
-                            );
-            my $desc      = Term::ANSIColor::colored(
-                                $indent .  $info->{$_}{desc},
-                                $lexical_config->{desc_text_col}
-                            );
+            my $construct = sprintf('%-*s', $MAX_DISPLAY, $indent . $info->{$_}{construct});
+            my $desc      = $indent . $info->{$_}{desc};
+
+            # Decorate according to destination...
+            if ($save) {
+                $desc = '#' . $desc
+            }
+            else {
+                $construct = Term::ANSIColor::colored($construct, $lexical_config->{desc_regex_col});
+                $desc      = Term::ANSIColor::colored($desc,      $lexical_config->{desc_text_col});
+            }
+
+            # Format and return...
             if (length($indent . $info->{$_}{construct}) > 20) {
                   $construct . "\n"
                 . q{ } x ($MAX_DISPLAY+2) . "$desc\n"
@@ -2418,6 +2498,7 @@ ________________________________________________/ Help \______
              E : take snapshot of current event log
              H : take snapshot of current heatmaps
              J : take snapshot of current JSON representation
+             D : take snapshot of regex description
 
   Control:   q : quit debugger and continue program
              x : exit debugger and terminate program
@@ -2429,9 +2510,8 @@ END_HELP
 # Take a snapshot of the current debugger state...
 my @ERR_MODE = ( -timeout => 10, -style => $ERR_COL, -single);
 
-sub _save_snapshot {
-    my ($data_mode, $step) = @_;
-    $step //= -1;
+sub _prompt_for_file {
+    my ($data_mode) = @_;
 
     if (!eval { require Time::HiRes; }) {
         *Time::HiRes::time = sub { time };
@@ -2447,6 +2527,7 @@ sub _save_snapshot {
 
     # Default to paged-to-screen...
     if ($input eq "\n") {
+        say '<screen>';
         $open_mode = '|-';
         $filename  = $ENV{PAGER} // 'more';
         if ($filename eq 'less') {
@@ -2475,6 +2556,16 @@ sub _save_snapshot {
         _interact();
         return;
     };
+
+    return $fh;
+}
+
+sub _save_snapshot {
+    my ($data_mode, $step) = @_;
+    $step //= -1;
+
+    # Open the save target...
+    my $fh = _prompt_for_file($data_mode);
 
     # Output current state (appropriately trimmed)...
     my $state = $history_of{$data_mode}[$step]{display};
@@ -2747,9 +2838,15 @@ sub rxrx {
 
             # Compile and save the new regex...
             if ($+{cmd} eq q{/}) {
-                $input_regex = $+{data};
-                $regex_flags = $+{flags} // 'x';
-                $regex = evaluate qq{\n# line 0 rxrx\nuse Regexp::Debugger; qr{$+{data}}$regex_flags;};
+                if ($+{data} eq q{}) {
+                    state $NULL_REGEX = eval q{use Regexp::Debugger; qr{(?#NULL)}; };
+                    $regex = $NULL_REGEX;
+                }
+                else {
+                    $input_regex = $+{data};
+                    $regex_flags = $+{flags} // 'x';
+                    $regex = evaluate qq{\n# line 0 rxrx\nuse Regexp::Debugger; qr{$+{data}}$regex_flags;};
+                }
 
                 # Report any errors...
                 print "$@\n" if $@;
@@ -2856,7 +2953,7 @@ sub _pause {
 
 # Simple prompter...
 *_prompt = eval { require IO::Prompter }
-    ? sub { 
+    ? sub {
             return IO::Prompter::prompt(@_)
       }
     : sub {
@@ -2879,7 +2976,7 @@ Regexp::Debugger - Visually debug regexes in-place
 
 =head1 VERSION
 
-This document describes Regexp::Debugger version 0.001011
+This document describes Regexp::Debugger version 0.001012
 
 
 =head1 SYNOPSIS

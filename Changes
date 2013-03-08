@@ -109,3 +109,25 @@ Revision history for Regexp-Debugger
     - Fixed bug in charset parsing (thanks Geunyoung Park)
 
     - Improved atom parsing
+
+
+0.001012  Fri Mar  8 17:19:54 2013
+
+    - Optimized non-interactive cases
+      (no longer rewrites regexes in non-interactive at compile-time)
+
+    - Added correct handling of null regexes to rxrx
+      (thanks Felix)
+
+    - Added EXE_FILES to Makefile.PL to install rxrx
+      (thanks Felix)
+
+    - Added snapshots for description output
+
+    - Improved reporting of non-backtracking parens
+      during backtracking
+
+    - Fixed critical bug in matching repeated blocks
+      (thanks Holger!)
+
+    - Improved tracking and reporting of self-matching whitespace

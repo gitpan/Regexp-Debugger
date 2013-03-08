@@ -8,6 +8,7 @@ WriteMakefile(
     VERSION_FROM        => 'lib/Regexp/Debugger.pm',
     ABSTRACT_FROM       => 'lib/Regexp/Debugger.pm',
     PL_FILES            => {},
+    EXE_FILES           => [ 'bin/rxrx' ],
     PREREQ_PM => {
         'Test::More' => 0,
         'version'    => 0,
