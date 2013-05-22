@@ -4,7 +4,7 @@ use warnings;
 use strict;
 eval "use feature 'evalbytes'";         # Experimental fix for Perl 5.16
 
-our $VERSION = '0.001012';
+our $VERSION = '0.001013';
 
 # Give an accurate warning if used with an antique Perl...
 BEGIN {
@@ -65,6 +65,7 @@ my %DEFAULT_CONFIG = (
     try_col   => 'bold magenta on_black',
     match_col => '   bold cyan on_black',
     fail_col  => '      yellow on_red',
+    ws_col    => '   bold blue underline',
 
     # Colour scheme for regex descriptions...
     %DESCRIPTION_COLOUR,
@@ -1715,6 +1716,7 @@ sub _build_visualization {
                  text => $regex_src,
                   pos => $regex_pos,
                  heat => substr($data_mode, -7) eq 'heatmap' ?  $history_of{match_heatmap} : [],
+            ws_colour => substr($data_mode, -7) eq 'heatmap',
             no_window => $no_window,
         );
 
@@ -1760,6 +1762,7 @@ sub _build_visualization {
                   pos => $str_pos,
                 start => $Regexp::Grammars::match_start_pos,
                  heat => substr($data_mode, -7) eq 'heatmap' ?  $history_of{string_heatmap} : [],
+            ws_colour => substr($data_mode, -7) eq 'heatmap',
                marker => $last_match_marker,
             no_window => $no_window,
           );
@@ -1785,20 +1788,21 @@ sub _build_visualization {
 
                # On failure, fail-colour to current position...
              : $nested_because eq 'failed' ?
-                    _fail_colourer( substr($str_src, 0, $str_pos) )
-                  . substr($str_src, $str_pos)
+                    _fail_colourer( substr($str_src, 0, $str_pos), 'ws' )
+                  . _ws_colourer(   substr($str_src, $str_pos)          )
 
                # When trying, try-colour current position
              : $is_trying ?
-                    _fail_colourer(  substr($str_src, 0, $match_start) )
-                  . _match_colourer( substr($str_src, $match_start, $str_pos-$match_start), 'underline' )
-                  . _try_colourer(   substr($str_src, $str_pos, 1), 'underline bold' )
-                  . substr($str_src, min(length($str_src),$str_pos+1))
+                    _fail_colourer(  substr($str_src, 0, $match_start),                                  'ws' )
+                  . _match_colourer( substr($str_src, $match_start, $str_pos-$match_start), 'underline', 'ws' )
+                  . _try_colourer(   substr($str_src, $str_pos, 1), 'underline bold',                    'ws' )
+                  . _ws_colourer(    substr($str_src, min(length($str_src),$str_pos+1))                       )
 
              : # Otherwise, report pre-failure and current match...
-                    _fail_colourer(  substr($str_src, 0, $match_start) )
-                  . _match_colourer( substr($str_src, $match_start, $str_pos-$match_start), 'underline' )
-                  . substr($str_src, $str_pos);
+                    _fail_colourer(  substr($str_src, 0, $match_start),                                  'ws' )
+                  . _match_colourer( substr($str_src, $match_start, $str_pos-$match_start), 'underline', 'ws' )
+                  . _ws_colourer(    substr($str_src, $str_pos)                                               );
+
     _visualize $data_mode, q{'}, $str_src, q{'};  # String itself
 
     # Draw a marker for any match or capture within the string...
@@ -1845,15 +1849,18 @@ sub _build_tabulated_heatmap {
         # Locate next char and its heat value...
         my $char = substr($str, $index, 1);
         my $abs_heat = $heatmap_ref->[$index] // 0;
+        my $display_char = $char eq "\n" ? '\n'
+                         : $char eq "\t" ? '\t'
+                         :                 $char;
 
         # Graph it...
-        if (@graph && length($graph[-1]{text}) < $TABLE_STR_WIDTH && $graph[-1]{heat} == $abs_heat) {
-            $graph[-1]{text} .= $char;
+        if (@graph && length($graph[-1]{text} . $display_char) < $TABLE_STR_WIDTH && $graph[-1]{heat} == $abs_heat) {
+            $graph[-1]{text} .= $display_char;
         }
         elsif ($char ne q{ } || $abs_heat != 0) {
             my $rel_heat = $heat[$index] // 0;
             push @graph, {
-                    text => $char,
+                    text => $display_char,
                     heat => $abs_heat,
                 rel_heat => $rel_heat,
                      bar => q{*} x (($MAX_WIDTH-$TABLE_STR_WIDTH) * $rel_heat),
@@ -1896,19 +1903,6 @@ sub _reset_debugger_state {
     _show_JSON  $lexical_config->{display_mode}, q{};
 }
 
-sub _clean_str {
-    my $str = shift;
-
-    for my $char ("\n", "\t") {
-        while (1) {
-            my $tr_pos = index($str, $char);
-            last if $tr_pos < 0;
-            substr($str, $tr_pos, 1, q{ });
-        }
-    }
-
-    return $str;
-}
 
 # Set up a JSON encoder...
 my ($JSON_encoder, $JSON_decoder);
@@ -1949,7 +1943,7 @@ sub _report_event {
     return if $interaction_quit;
 
     # What are we matching....
-    my $str_src = _clean_str($_);
+    my $str_src = $_;
 
     # Which regex? Which event? Where in the string? Is this a recursive call?
     my ($regex_ID, $event_ID, $str_pos, %opt) = @_;
@@ -2136,8 +2130,8 @@ sub _report_event {
 
     # Log (and perhaps display) event...
     _show_event $display_mode,
-               sprintf("%-${EVENT_COL_WIDTH}s | %-${EVENT_COL_WIDTH}s | %s",
-                        substr($str_src, $str_pos, $EVENT_COL_WIDTH),
+               sprintf("%-s | %-${EVENT_COL_WIDTH}s | %s",
+                        _ws_colourer(substr($str_src . (q{ } x $EVENT_COL_WIDTH), $str_pos, $EVENT_COL_WIDTH)),
                             substr($regex_src, $regex_pos, $EVENT_COL_WIDTH),
                                 $indent . $colourer->($msg));
 
@@ -2602,13 +2596,13 @@ sub _build_heatmap {
     my $heatmap = q{};
     for my $n (0..length($str)-1) {
         my $heat = $HEAT_COLOUR[$count[$n] // 0];
-        $heatmap .= Term::ANSIColor::colored(substr($str,$n,1), $heat);
+        $heatmap .= _ws_colourer(substr($str,$n,1), $heat);
     }
 
     return $heatmap;
 }
 
-# Extract a window into string to fit it on screen...
+# Extract a window-into-string to fit it on screen...
 sub _make_window {
     my %arg = @_;
 
@@ -2616,6 +2610,7 @@ sub _make_window {
     my $pos       =    $arg{pos}   // 0;
     my $start_pos =    $arg{start} // 0;
     my @heatmap   = @{ $arg{heat}  // [] };
+    my $ws_colour =    $arg{ws_colour};
     my $window    =   !$arg{no_window};
     my $marker    =   $arg{marker};
 
@@ -2679,6 +2674,9 @@ sub _make_window {
     if (@heatmap) {
         $src = _build_heatmap($src, \@heatmap);
     }
+    elsif ($ws_colour) {
+        $src = _ws_colourer($src);
+    }
 
     # Trim trailing whitespace from marker...
     while ($marker && substr($marker,-1) eq q{ }) {
@@ -2690,23 +2688,80 @@ sub _make_window {
 
 # Colour message appropriately...
 sub _fail_colourer  {
-    return Term::ANSIColor::colored(shift, $lexical_config->{fail_col});
+    my ($str, $ws_colouring) = @_;
+    my $colourer = $ws_colouring ? \&_ws_colourer : \&Term::ANSIColor::colored;
+    return $colourer->($str, $lexical_config->{fail_col});
 }
 
 sub _info_colourer  {
-    return Term::ANSIColor::colored(shift, $lexical_config->{info_col});
+    my ($str, $ws_colouring) = @_;
+    my $colourer = $ws_colouring ? \&_ws_colourer : \&Term::ANSIColor::colored;
+    return $colourer->($str, $lexical_config->{info_col});
 }
 
 sub _try_colourer {
-    my ($str, $extras) = @_;
+    my ($str, $extras, $ws_colouring) = @_;
     $extras //= q{};
-    return Term::ANSIColor::colored($str, "$lexical_config->{try_col} $extras");
+    my $colourer = $ws_colouring ? \&_ws_colourer : \&Term::ANSIColor::colored;
+    return $colourer->($str, "$lexical_config->{try_col} $extras");
 }
 
 sub _match_colourer {
-    my ($str, $extras) = @_;
+    my ($str, $extras, $ws_colouring) = @_;
     $extras //= q{};
-    return Term::ANSIColor::colored($str, "$lexical_config->{match_col} $extras");
+    my $colourer = $ws_colouring ? \&_ws_colourer : \&Term::ANSIColor::colored;
+    return $colourer->($str, "$lexical_config->{match_col} $extras");
+}
+
+my %DISPLAY_FOR = (
+    "\n" => 'n',
+    "\t" => 't',
+    "\r" => 'r',
+    "\f" => 'f',
+    "\b" => 'b',
+    "\a" => 'a',
+    "\e" => 'e',
+    "\0" => '0',
+);
+
+sub _ws_colourer {
+    my ($str, $colour_scheme) = @_;
+
+    # How to colour the text...
+    $colour_scheme //= 'clear';
+    my $ws_colour_scheme = "$colour_scheme $lexical_config->{ws_col}";
+
+    # Accumulate the text...
+    my $coloured_str = q{};
+    my $prefix = q{};
+
+    # Step through char-by-char...
+    CHAR:
+    for my $n (0..length($str)-1) {
+        my $char = substr($str, $n, 1);
+
+        # If it's special, handle it...
+        for my $special_char (keys %DISPLAY_FOR) {
+            if ($char eq $special_char) {
+                if (length($prefix)) {
+                    $coloured_str .= Term::ANSIColor::colored($prefix, $colour_scheme);
+                    $prefix = q{};
+                }
+                $coloured_str .= Term::ANSIColor::colored($DISPLAY_FOR{$special_char}, $ws_colour_scheme);
+                next CHAR;
+            }
+        }
+
+        # Otherwise, accumulate it...
+        $prefix .= $char;
+    }
+
+    # Clean up any remaining text...
+    if (length($prefix)) {
+        $coloured_str .= Term::ANSIColor::colored($prefix, $colour_scheme);
+    }
+
+    return $coloured_str;
 }
 
 sub _colourer_for {
@@ -2782,7 +2837,7 @@ sub rxrx {
             my $regex_ID                = $dumped_data->{regex_ID};
             %history_of                 = %{ $dumped_data->{visualization} };
             $history_of{match_heatmap}  = $dumped_data->{match_heatmap};
-            $history_of{stringheatmap}  = $dumped_data->{string_heatmap};
+            $history_of{string_heatmap} = $dumped_data->{string_heatmap};
             $display_mode               = $dumped_data->{config}{display_mode};
             $state{$regex_ID}{location} = $dumped_data->{regex_location};
 
@@ -2925,7 +2980,7 @@ sub _display {
     say Term::ANSIColor::colored('regex:', 'white');
     say qq{/$regex/$flags\n\n\n};
     say Term::ANSIColor::colored('string:', 'white');
-    say qq{'$string'\n\n\n};
+    say q{'} . _ws_colourer($string) . qq{'\n\n\n};
 }
 
 
@@ -2934,12 +2989,12 @@ sub _quote_ws {
     my $str = shift;
 
     my $index;
-    for my $ws_char ( "\n", "\t" ) {
+    for my $ws_char ( ["\n"=>'\n'], ["\t"=>'\n'] ) {
         SEARCH:
         while (1) {
-            $index = index($str, $ws_char);
+            $index = index($str, $ws_char->[0]);
             last SEARCH if $index < 0;
-            substr($str, $index, 1, '\\n');
+            substr($str, $index, 1, $ws_char->[1]);
         }
     }
 
@@ -2976,7 +3031,7 @@ Regexp::Debugger - Visually debug regexes in-place
 
 =head1 VERSION
 
-This document describes Regexp::Debugger version 0.001012
+This document describes Regexp::Debugger version 0.001013
 
 
 =head1 SYNOPSIS
@@ -3158,6 +3213,13 @@ The colour in which unsuccessful matches of part of the regex are reported
 
 =item *
 
+C<ws_col>
+
+The colour in which special characters (such as "\n", "\t", "\e", etc.)
+are reported (as single letters: 'n', 't', 'e', etc.)
+
+=item *
+
 C<info_col>
 
 The colour in which other information is reported
@@ -3236,6 +3298,7 @@ The default colour configurations are:
     try_col    :  bold magenta  on_black
     match_col  :  bold cyan     on_black
     fail_col   :       yellow   on_red
+    ws_col     :  bold blue     underline
     info_col   :       white    on_black
 
     desc_regex_col  :  white    on_black

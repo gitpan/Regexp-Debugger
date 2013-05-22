@@ -131,3 +131,12 @@ Revision history for Regexp-Debugger
       (thanks Holger!)
 
     - Improved tracking and reporting of self-matching whitespace
+
+
+0.001013  Wed May 22 17:44:28 2013
+
+    - Fixed buglet in whitespace echoing under 'visible'
+
+    - Made \n, \t, etc in strings being matched
+      appear as specially coloured n and t respectively
+      (added ws_col config to allow customization)
