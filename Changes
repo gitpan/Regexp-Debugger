@@ -140,3 +140,11 @@ Revision history for Regexp-Debugger
     - Made \n, \t, etc in strings being matched
       appear as specially coloured n and t respectively
       (added ws_col config to allow customization)
+
+
+0.001014  Mon Jul 15 12:02:01 2013
+
+    - Added minimal perl version info to Build.PL and Makefile.PL
+      (thanks Andreas!)
+
+    - Updated for Perl 5.18 (thanks Ken!)

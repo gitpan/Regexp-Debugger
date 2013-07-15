@@ -4,7 +4,10 @@ use warnings;
 use strict;
 eval "use feature 'evalbytes'";         # Experimental fix for Perl 5.16
 
-our $VERSION = '0.001013';
+our $VERSION = '0.001014';
+
+# Handle Perl 5.18's new-found caution...
+no if $] >= 5.018, warnings => "experimental::smartmatch";
 
 # Give an accurate warning if used with an antique Perl...
 BEGIN {
@@ -3031,7 +3034,7 @@ Regexp::Debugger - Visually debug regexes in-place
 
 =head1 VERSION
 
-This document describes Regexp::Debugger version 0.001013
+This document describes Regexp::Debugger version 0.001014
 
 
 =head1 SYNOPSIS

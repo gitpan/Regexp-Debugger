@@ -8,6 +8,7 @@ my $builder = Module::Build->new(
     dist_author         => 'Damian Conway <DCONWAY@CPAN.org>',
     dist_version_from   => 'lib/Regexp/Debugger.pm',
     requires => {
+        'perl'       => 5.010001,
         'Test::More' => 0,
         'version'    => 0,
     },

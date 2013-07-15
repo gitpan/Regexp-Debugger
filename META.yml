@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Regexp-Debugger
-version:            0.001013
+version:            0.001014
 abstract:           Visually debug regexes in-place
 author:
     - Damian Conway <DCONWAY@CPAN.org>
@@ -11,6 +11,7 @@ configure_requires:
 build_requires:
     ExtUtils::MakeMaker:  0
 requires:
+    perl:        5.010001
     Test::More:  0
     version:     0
 no_index:
