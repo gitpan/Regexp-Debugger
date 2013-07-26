@@ -4,7 +4,7 @@ use warnings;
 use strict;
 eval "use feature 'evalbytes'";         # Experimental fix for Perl 5.16
 
-our $VERSION = '0.001014';
+our $VERSION = '0.001015';
 
 # Handle Perl 5.18's new-found caution...
 no if $] >= 5.018, warnings => "experimental::smartmatch";
@@ -503,11 +503,11 @@ sub _build_debugging_regex {
             |
                 (?<newline_char>  \n  )
                 (?<quantifier> (?&UNSPACED_QUANTIFIER) )?
-                (?{$construct_desc = 'newline'})
+                (?{$construct_desc = 'a literal newline character'})
             |
                 (?<tab_char>      \t  )
                 (?<quantifier> (?&UNSPACED_QUANTIFIER) )?
-                (?{$construct_desc = 'tab'})
+                (?{$construct_desc = 'a literal tab character'})
             )
         |
             (?<break_comment>
@@ -600,39 +600,43 @@ sub _build_debugging_regex {
         |
             (?<atom>
                 (?<_self_matching>  \w{2,}  )  (?! (?&QUANTIFIER) )
-                (?{$quantifier_desc = ''; $construct_desc = 'a literal sequence'})
+                (?{$quantifier_desc = ''; $construct_desc = qq{a literal sequence ("$+{_self_matching}")}})
             |
                 (?{$quantifier_desc = '';})
                 (?<_self_matching>  (?&NONMETA)   )  (?<quantifier> (?&QUANTIFIER) )?
-                (?{$construct_desc = 'a literal character'})
+                (?{$construct_desc = qq{a literal '$+{_self_matching}' character}})
             |
                 (?{$quantifier_desc = '';})
                 (?<_metacharacter>
                     [.]                             (?{$construct_desc = 'any character (except newline)'})
                 |
                     \\
-                    (?: \d++                        (?{$construct_desc = 'a numbered back-reference'})
-                      | 0[0-7]++                    (?{$construct_desc = 'a character'})
+                    (?: (0[0-7]++)                  (?{$construct_desc = "a literal '".chr(oct($^N))."' character"})
+                      | (\d++)                      (?{$construct_desc = "what was captured in \$$^N"})
                       | a                           (?{$construct_desc = 'an alarm/bell character'})
-                      | c [A-Z]                     (?{$construct_desc = 'a control character'})
+                      | c ([A-Z])                   (?{$construct_desc = "a CTRL-$^N character"})
                       | C                           (?{$construct_desc = 'a C-language octet'})
                       | d                           (?{$construct_desc = 'a digit'})
                       | D                           (?{$construct_desc = 'a non-digit'})
                       | e                           (?{$construct_desc = 'an escape character'})
                       | f                           (?{$construct_desc = 'a form-feed character'})
-                      | g          \d+              (?{$construct_desc = 'a numbered back-reference'})
-                      | g \{ [+-]? \d+ \}           (?{$construct_desc = 'a numbered back-reference'})
-                      | g \{ \w++ \}                (?{$construct_desc = 'a named back-reference'})
+                      | g      (\d+)                (?{$construct_desc = "what was captured in \$$^N"})
+                      | g    - (\d+)                (?{$construct_desc = $^N == 1 ? "what was captured by the nearest preceding capture group"
+                                                                                  : "what was captured $^N capture groups back" })
+                      | g \{   (\d+) \}             (?{$construct_desc = "what was captured in \$$^N"})
+                      | g \{ - (\d+) \}             (?{$construct_desc = $^N == 1 ? "what was captured by the nearest preceding capture group"
+                                                                                  : "what was captured $^N capture groups back" })
+                      | g \{ (\w++) \}              (?{$construct_desc = "what the named capture <$^N> matched"})
                       | h                           (?{$construct_desc = 'a horizontal whitespace character'})
                       | H                           (?{$construct_desc = 'a non-horizontal-whitespace character'})
-                      | k \< \w++ \>                (?{$construct_desc = 'a named back-reference'})
+                      | k \< (\w++) \>              (?{$construct_desc = "what the named capture <$^N> matched"})
                       | n                           (?{$construct_desc = 'a newline character'})
-                      | N \{ [^\}]++ \}             (?{$construct_desc = 'a named character'})
+                      | N \{ ([^\}]++) \}           (?{$construct_desc = "a single \L$^N\E character"})
                       | N                           (?{$construct_desc = 'a non-newline character'})
-                      | p    \w++                   (?{$construct_desc = 'a Unicode property'})
-                      | P \w+                       (?{$construct_desc = 'a negative Unicode property'})
-                      | P \{ [^\}]++ \}             (?{$construct_desc = 'a negative Unicode property'})
-                      | p \{ [^\}]++ \}             (?{$construct_desc = 'a Unicode property'})
+                      | p (\w++)                    (?{$construct_desc = "a character matching the Unicode property: $^N"})
+                      | P (\w++)                    (?{$construct_desc = "a character not matching the Unicode property: $^N"})
+                      | P \{ ([^\}]++) \}           (?{$construct_desc = "a character not matching the Unicode property: $^N"})
+                      | p \{ ([^\}]++) \}           (?{$construct_desc = "a character matching the Unicode property: $^N"})
                       | r                           (?{$construct_desc = 'a return character'})
                       | R                           (?{$construct_desc = 'an end-of-line sequence'})
                       | S                           (?{$construct_desc = 'a non-whitespace character'})
@@ -642,29 +646,34 @@ sub _build_debugging_regex {
                       | v                           (?{$construct_desc = 'a vertical whitespace character'})
                       | w                           (?{$construct_desc = 'an identifier character'})
                       | W                           (?{$construct_desc = 'an non-identifier character'})
-                      | x    [0-9A-Za-z]++          (?{$construct_desc = 'a character'})
-                      | x \{ [0-9A-Za-z ]++ \}      (?{$construct_desc = 'a character'})
+                      | x    ([0-9A-Za-z]++)        (?{$construct_desc = "a literal '".chr(oct('0x'.$^N))."' character"})
+                      | x \{ ([0-9A-Za-z ]++) \}    (?{$construct_desc = "a literal '".chr(oct('0x'.$^N))."' character"})
                       | X                           (?{$construct_desc = 'a Unicode grapheme cluster'})
-                      | .                           (?{$construct_desc = 'an escaped literal'})
+                      | (.)                         (?{$construct_desc = "a literal '$^N' character"})
                     )
                 |
-                    [(][?] P = \w++ [)]    # PCRE version of \k<NAME>
-                    (?{$construct_desc = 'a named back-reference'})
+                    [(][?] P = (\w++) [)]    # PCRE version of \k<NAME>
+                    (?{$construct_desc = "what the named capture <$^N> matched"})
 
                 )  (?<quantifier> (?&QUANTIFIER) )?
             |
                 (?{$quantifier_desc = '';})
                 (?<_charset>  (?&CHARSET)  )  (?<quantifier> (?&QUANTIFIER) )?
-                (?{$construct_desc = 'a character class'})
+                (?{$construct_desc = substr($+{_charset},0,2) eq '[^'
+                                        ? 'any character not listed'
+                                        : 'any of the listed characters'
+                })
             |
                 (?{$quantifier_desc = '';})
                 (?<_named_subpattern_call>
                     [(][?]
                     (?:
-                        [&] (?&IDENTIFIER)   (?{$construct_desc = 'a named subpattern call'})
-                    |   P>  (?&IDENTIFIER)   (?{$construct_desc = 'a named subpattern call'})
-                    |   [+-]?\d++            (?{$construct_desc = 'a numbered subpattern call'})
-                    |   R                    (?{$construct_desc = 'a recursive call to the current regex'})
+                        [&] ((?&IDENTIFIER))   (?{$construct_desc = "a call to the subpattern named <$^N>"})
+                    |   P>  ((?&IDENTIFIER))   (?{$construct_desc = "a call to the subpattern named <$^N>"})
+                    |   [+]? (\d++)            (?{$construct_desc = 'a call to subpattern number $^N'})
+                    |   [-]  (\d++)            (?{$construct_desc = $^N == 1 ? "a call to the nearest preceding subpattern"
+                                                                             : "a call to the subpattern $^N back" })
+                    |   R                      (?{$construct_desc = 'a recursive call to the current regex'})
                     )
                     [)]
                 )
@@ -950,8 +959,8 @@ sub _build_debugging_regex {
                         %std_info,
                         matchable      => 1,
                         event_type     => 'pre',
-                        msg            => "Trying $construct_desc $quantifier_desc",
-                        desc           => "Match $construct_desc $quantifier_desc",
+                        msg            => "Trying $construct_desc" . (length($quantifier_desc) ? ", $quantifier_desc" : q{}),
+                        desc           => "Match $construct_desc" . (length($quantifier_desc) ? ", $quantifier_desc" : q{}),
                         shared_str_pos => \$shared_str_pos,
                   })
                 . $subpattern_call_prefix
@@ -3034,7 +3043,7 @@ Regexp::Debugger - Visually debug regexes in-place
 
 =head1 VERSION
 
-This document describes Regexp::Debugger version 0.001014
+This document describes Regexp::Debugger version 0.001015
 
 
 =head1 SYNOPSIS

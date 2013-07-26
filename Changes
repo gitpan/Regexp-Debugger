@@ -148,3 +148,8 @@ Revision history for Regexp-Debugger
       (thanks Andreas!)
 
     - Updated for Perl 5.18 (thanks Ken!)
+
+
+0.001015  Fri Jul 26 07:20:09 2013
+
+    - Improved specificity of 'd' and 'D' reporting
