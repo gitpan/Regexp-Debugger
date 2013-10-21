@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               Regexp-Debugger
-version:            0.001015
+version:            0.001016
 abstract:           Visually debug regexes in-place
 author:
     - Damian Conway <DCONWAY@CPAN.org>

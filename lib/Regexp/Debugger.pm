@@ -4,7 +4,7 @@ use warnings;
 use strict;
 eval "use feature 'evalbytes'";         # Experimental fix for Perl 5.16
 
-our $VERSION = '0.001015';
+our $VERSION = '0.001016';
 
 # Handle Perl 5.18's new-found caution...
 no if $] >= 5.018, warnings => "experimental::smartmatch";
@@ -2866,7 +2866,7 @@ sub rxrx {
 
         # Otherwise, assume it's a perl source file and debug it...
         else {
-            exec 'perl', '-MRegexp::Debugger', @_
+            exec $^X, '-MRegexp::Debugger', @_
                 or die "Couldn't invoke perl: $!";
         }
     }
@@ -2917,6 +2917,7 @@ sub rxrx {
 
                 # Report any errors...
                 print "$@\n" if $@;
+                print "Invalid input\n" if !defined $regex;
 
                 # Remember it...
                 push @{$regex_history}, $input;
@@ -2928,6 +2929,7 @@ sub rxrx {
 
                 # Report any errors...
                 print "$@\n" if $@;
+                print "Invalid input\n" if !defined $string;
 
                 # Remember it...
                 push @{$str_history}, $input;
@@ -2937,6 +2939,7 @@ sub rxrx {
 
                 # Report any errors...
                 print "$@\n" if $@;
+                print "Invalid input\n" if !defined $string;
 
                 # Remember it...
                 push @{$str_history}, $input;
@@ -2980,7 +2983,9 @@ sub rxrx {
         }
 
         # Redisplay the new regex and/or string...
-        _display($string, $input_regex, $regex_flags);
+        if (defined $string && defined $input_regex) {
+            _display($string, $input_regex, $regex_flags);
+        }
     }
 }
 
@@ -3043,7 +3048,7 @@ Regexp::Debugger - Visually debug regexes in-place
 
 =head1 VERSION
 
-This document describes Regexp::Debugger version 0.001015
+This document describes Regexp::Debugger version 0.001016
 
 
 =head1 SYNOPSIS

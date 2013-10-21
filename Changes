@@ -153,3 +153,11 @@ Revision history for Regexp-Debugger
 0.001015  Fri Jul 26 07:20:09 2013
 
     - Improved specificity of 'd' and 'D' reporting
+
+
+0.001016  Tue Oct 22 10:26:33 2013
+
+    - Made error checking in rxrx more robust
+
+    - Made rxrx reinvoke the version of Perl it was itself invoked with,
+      regardless of $PATH idiosyncrasies (thanks, brian!)
