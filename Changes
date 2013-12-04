@@ -161,3 +161,9 @@ Revision history for Regexp-Debugger
 
     - Made rxrx reinvoke the version of Perl it was itself invoked with,
       regardless of $PATH idiosyncrasies (thanks, brian!)
+
+
+0.001017  Thu Dec  5 10:42:15 2013
+
+    - Fixed obscure bug with null rematches under /g
+      (thanks Smylers!)

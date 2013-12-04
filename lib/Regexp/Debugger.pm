@@ -4,7 +4,7 @@ use warnings;
 use strict;
 eval "use feature 'evalbytes'";         # Experimental fix for Perl 5.16
 
-our $VERSION = '0.001016';
+our $VERSION = '0.001017';
 
 # Handle Perl 5.18's new-found caution...
 no if $] >= 5.018, warnings => "experimental::smartmatch";
@@ -28,13 +28,15 @@ my @config;
 my %history_of;
 
 # Persistent information within debugger...
-my $prev_regex_pos;   # ...track where we were previously in the regex
-my $prev_str_pos;     # ...track where we were previously in the string
-my %capture;          # ...track capture groups within regex
-my $pre_is_pending;   # ...did we try something last event?
-my $interaction_quit; # ...did we get a quit request?
-my $interaction_mode; # ...step-by-step, jump to match, or continue?
-my $display_mode;     # ...how is the match being visualized at present?
+my $prev_regex_pos;      # ...track where we were previously in the regex
+my $start_str_pos;       # ...track where we started matching in the string
+my $prev_str_pos;        # ...track where we were previously in the string
+my $prev_match_was_null; # ...under /g was previous match a null match?
+my %capture;             # ...track capture groups within regex
+my $pre_is_pending;      # ...did we try something last event?
+my $interaction_quit;    # ...did we get a quit request?
+my $interaction_mode;    # ...step-by-step, jump to match, or continue?
+my $display_mode;        # ...how is the match being visualized at present?
 
 
 # Colours for heatmaps...
@@ -771,7 +773,17 @@ sub _build_debugging_regex {
                     event_type     => 'post',
                     depth          => 1,
                     msg            => sub { my $steps = @{$history_of{visual}};
-                                            "Regex matched in $steps step" . ($steps != 1 ? 's' : '');
+                                            $steps .= ' step' . ($steps != 1 ? 's' : '');
+
+                                            # Was this a second null match???
+                                            my $match_was_null = (pos == $start_str_pos);
+                                            if ($match_was_null && $prev_match_was_null) {
+                                                return "Regex matched in $steps but failed to advance within string";
+                                            }
+                                            else {
+                                                $prev_match_was_null = $match_was_null;
+                                                return "Regex matched in $steps";
+                                            }
                                       },
                 })
                 . '|'
@@ -781,8 +793,9 @@ sub _build_debugging_regex {
                     event_type     => 'post',
                     regex_failed   => 1,
                     depth          => 1,
-                    msg            => sub { my $steps = @{$history_of{visual}};
-                                            "Regex failed to match after $steps step" . ($steps != 1 ? 's' : '');
+                    msg            => sub { my $steps = @{$history_of{visual}//[]};
+                                            "Regex failed to match"
+                                            . ($steps ? " after $steps step" . ($steps != 1 ? 's' : '') : '');
                                       },
                 })
                 . '(?!)';
@@ -1417,8 +1430,11 @@ sub _build_debugging_regex {
     $state{$regex_ID}{regex_src} = $clean_regex;
 
     # Add a preface to reset state variables in the event handler...
-    $raw_regex = "(?>\\A(?{Regexp::Debugger::_reset_debugger_state()})(?!))|(?:$raw_regex)";
+    $raw_regex = '(?>\A(?{Regexp::Debugger::_reset_debugger_state()})(?!)'
+               .   '|\G(?{Regexp::Debugger::_reset_debugger_state_rematch()})(?!))'
+               . "|(?:$raw_regex)";
 
+    say "(?#R_d:$regex_ID)".$raw_regex;
     return "(?#R_d:$regex_ID)".$raw_regex;
 }
 
@@ -1901,14 +1917,33 @@ our   $subpattern_depth; # ...how many levels down in named subpatterns?
 
 # Reset debugger variables at start of match...
 sub _reset_debugger_state {
-    $prev_regex_pos   = 0;     # ...start of regex
-    $prev_str_pos     = 0;     # ...start of string
-    $pre_is_pending   = undef; # ...no try is pending
-    $interaction_mode = 's';   # ...always start in step-by-step mode
-    $interaction_quit = 0;     # ...reset quit command for each regex
-    $subpattern_depth = 0;     # ...start at top level of named subcalls
+    $prev_regex_pos      = 0;     # ...start of regex
+    $start_str_pos       = 0;     # ...starting point of match of string
+    $prev_str_pos        = 0;     # ...start of string
+    $prev_match_was_null = 0;     # ...no previous match (to have been null)
+    $pre_is_pending      = undef; # ...no try is pending
+    $interaction_mode    = 's';   # ...always start in step-by-step mode
+    $interaction_quit    = 0;     # ...reset quit command for each regex
+    $subpattern_depth    = 0;     # ...start at top level of named subcalls
 
     $Regexp::Grammars::match_start_pos  = 0;     # ...start matching at start of string
+
+    # Also leave a gap in the event history and JSON representations...
+    _show_event $lexical_config->{display_mode}, q{};
+    _show_JSON  $lexical_config->{display_mode}, q{};
+}
+
+
+# Reset some debugger variables at restart of match...
+sub _reset_debugger_state_rematch {
+    $prev_regex_pos   = 0;     # ...start of regex
+    $start_str_pos    = pos;   # ...starting point of match of string
+    $prev_str_pos     = pos;   # ...point of rematch
+    $pre_is_pending   = undef; # ...no try is pending
+    $interaction_mode = 's';   # ...always start in step-by-step mode
+    $subpattern_depth = 0;     # ...start at top level of named subcalls
+
+    $Regexp::Grammars::match_start_pos  = pos;     # ...start matching at rematch point
 
     # Also leave a gap in the event history and JSON representations...
     _show_event $lexical_config->{display_mode}, q{};
@@ -3048,7 +3083,7 @@ Regexp::Debugger - Visually debug regexes in-place
 
 =head1 VERSION
 
-This document describes Regexp::Debugger version 0.001016
+This document describes Regexp::Debugger version 0.001017
 
 
 =head1 SYNOPSIS
