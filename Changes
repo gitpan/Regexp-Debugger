@@ -167,3 +167,8 @@ Revision history for Regexp-Debugger
 
     - Fixed obscure bug with null rematches under /g
       (thanks Smylers!)
+
+
+0.001018  Thu Dec  5 15:12:25 2013
+
+    - Improved reporting of rematching and non-advancing failures under /g

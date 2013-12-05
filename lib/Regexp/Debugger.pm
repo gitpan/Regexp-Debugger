@@ -4,7 +4,7 @@ use warnings;
 use strict;
 eval "use feature 'evalbytes'";         # Experimental fix for Perl 5.16
 
-our $VERSION = '0.001017';
+our $VERSION = '0.001018';
 
 # Handle Perl 5.18's new-found caution...
 no if $] >= 5.018, warnings => "experimental::smartmatch";
@@ -795,7 +795,8 @@ sub _build_debugging_regex {
                     depth          => 1,
                     msg            => sub { my $steps = @{$history_of{visual}//[]};
                                             "Regex failed to match"
-                                            . ($steps ? " after $steps step" . ($steps != 1 ? 's' : '') : '');
+                                            . ($steps ? " after $steps step" . ($steps != 1 ? 's' : '')
+                                                      : ' (unable to advance within string)');
                                       },
                 })
                 . '(?!)';
@@ -2084,12 +2085,13 @@ sub _report_event {
     }
 
     # Construct status message (if necessary)...
-    $msg = $nested_because eq 'failed'        ?  q{Failed}
-         : $event_type eq 'pre'  && ref $msg  ?  'Capture to ' . join ' and ', @{$msg}
-         : $event_type eq 'post' && ref $msg  ?  'End of ' . join ' and ', @{$msg}
-         : defined $msg                       ?  $msg
-         : $construct_type eq '_START'        ?  q{Starting regex match}
-         :                                       q{}
+    $msg = $nested_because eq 'failed'                         ?  q{Failed}
+         : $event_type eq 'pre'  && ref $msg                   ?  'Capture to ' . join ' and ', @{$msg}
+         : $event_type eq 'post' && ref $msg                   ?  'End of ' . join ' and ', @{$msg}
+         : defined $msg                                        ?  $msg
+         : pos == $prev_str_pos && $construct_type eq '_START' ?  q{Restarting regex match}
+         : $construct_type eq '_START'                         ?  q{Starting regex match}
+         :                                                        q{}
          ;
 
     # Report back-tracking occurred (but not when returning from named subpatterns)...
@@ -3083,7 +3085,7 @@ Regexp::Debugger - Visually debug regexes in-place
 
 =head1 VERSION
 
-This document describes Regexp::Debugger version 0.001017
+This document describes Regexp::Debugger version 0.001018
 
 
 =head1 SYNOPSIS
