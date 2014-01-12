@@ -4,7 +4,7 @@ use warnings;
 use strict;
 eval "use feature 'evalbytes'";         # Experimental fix for Perl 5.16
 
-our $VERSION = '0.001018';
+our $VERSION = '0.001019';
 
 # Handle Perl 5.18's new-found caution...
 no if $] >= 5.018, warnings => "experimental::smartmatch";
@@ -2949,7 +2949,7 @@ sub rxrx {
                 else {
                     $input_regex = $+{data};
                     $regex_flags = $+{flags} // 'x';
-                    $regex = evaluate qq{\n# line 0 rxrx\nuse Regexp::Debugger; qr{$+{data}}$regex_flags;};
+                    $regex = evaluate qq{\n# line 0 rxrx\nuse Regexp::Debugger; qr/$+{data}/$regex_flags;};
                 }
 
                 # Report any errors...
@@ -3085,7 +3085,7 @@ Regexp::Debugger - Visually debug regexes in-place
 
 =head1 VERSION
 
-This document describes Regexp::Debugger version 0.001018
+This document describes Regexp::Debugger version 0.001019
 
 
 =head1 SYNOPSIS

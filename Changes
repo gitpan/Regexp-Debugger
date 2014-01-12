@@ -172,3 +172,9 @@ Revision history for Regexp-Debugger
 0.001018  Thu Dec  5 15:12:25 2013
 
     - Improved reporting of rematching and non-advancing failures under /g
+
+
+0.001019  Sun Jan 12 13:34:11 2014
+
+    - Fixed bug with raw } in rxrx regexes
+      (thanks ZZ)
