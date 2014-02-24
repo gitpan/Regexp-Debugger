@@ -178,3 +178,14 @@ Revision history for Regexp-Debugger
 
     - Fixed bug with raw } in rxrx regexes
       (thanks ZZ)
+
+
+0.001020  Mon Feb 24 14:21:20 2014
+
+    - Improved rxrx error reporting
+
+    - Added +/ mode to rxrx to allow multi-line input
+
+    - Added 'd' to rxrx to describe regex without entering debugger
+
+    - Patched a doc nit (thanks Andreas!)

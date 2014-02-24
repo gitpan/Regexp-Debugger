@@ -4,7 +4,7 @@ use warnings;
 use strict;
 eval "use feature 'evalbytes'";         # Experimental fix for Perl 5.16
 
-our $VERSION = '0.001019';
+our $VERSION = '0.001020';
 
 # Handle Perl 5.18's new-found caution...
 no if $] >= 5.018, warnings => "experimental::smartmatch";
@@ -2937,27 +2937,46 @@ sub rxrx {
             $input = _rxrx_history($regex_history);
         }
 
+
         # Are we updating the regex or string???
-        if ($input =~ m{^ (?<cmd> [/"'])  (?<data> .*?) (?<endcmd> \k<cmd> (?<flags> [imsxlaud]*) )? \s*  \z }x) {
+        if ($input =~ m{^ (?<cmd> [+]\s*[/]|[/"'])  (?<data> .*?) (?<endcmd> \k<cmd> (?<flags> [imsxlaud]*) )? \s*  \z }x) {
+            my ($cmd, $data, $endcmd, $flags) = @+{qw< cmd data endcmd flags >};
+
+            # Load the rest of the regex (if any)...
+            if ($cmd =~ m{[+]\s*[/]}xms) {
+                $cmd = '/';
+                while (my $input = _prompt('  +')) {
+                    last if $input eq q{};
+                    if ($input =~ m{\A (?<data>.*) [/][imsxlaud]*\Z}xms) {
+                        $data .= "\n$+{data}";
+                        last;
+                    }
+                    else {
+                        $data .= "\n$input";
+                    }
+                }
+            }
 
             # Compile and save the new regex...
-            if ($+{cmd} eq q{/}) {
-                if ($+{data} eq q{}) {
+            if ($cmd eq q{/}) {
+                if ($data eq q{}) {
                     state $NULL_REGEX = eval q{use Regexp::Debugger; qr{(?#NULL)}; };
                     $regex = $NULL_REGEX;
                 }
                 else {
-                    $input_regex = $+{data};
-                    $regex_flags = $+{flags} // 'x';
-                    $regex = evaluate qq{\n# line 0 rxrx\nuse Regexp::Debugger; qr/$+{data}/$regex_flags;};
+                    $input_regex = $data;
+                    $regex_flags = $flags // 'x';
+                    $regex = evaluate qq{\n# line 0 rxrx\nuse Regexp::Debugger; qr/$data/$regex_flags;};
                 }
 
                 # Report any errors...
-                print "$@\n" if $@;
-                print "Invalid input\n" if !defined $regex;
-
-                # Remember it...
-                push @{$regex_history}, $input;
+                if (!defined $regex) {
+                    say '>', eval qq{\n# line 0 rxrx\n qr/$data/$regex_flags;};
+                    $input_regex = "Invalid regex:\n$@";
+                }
+                else { # Remember it...
+                    push @{$regex_history}, $input;
+                }
             }
 
             # Otherwise compile the string (interpolated or not)...
@@ -2994,7 +3013,8 @@ sub rxrx {
             print "\n" x 2;
             say '____________________________________________/ Help \____';
             say '                                         ';
-            say '     / : Enter a pattern';
+            say '     / : Enter a pattern in a single line';
+            say '    +/ : Enter first line of a multi-line pattern';
             say "     ' : Enter a new literal string";
             say '     " : Enter a new double-quoted string';
             if (eval { require IO::Prompter }) {
@@ -3010,6 +3030,8 @@ sub rxrx {
             say '';
             say '     m : Match current string against current pattern';
             say '';
+            say '     d : Deconstruct and explain the current regex';
+            say '';
             say 'q or x : quit debugger and exit';
             next INPUT;
         }
@@ -3017,6 +3039,11 @@ sub rxrx {
         # Visualize the match...
         elsif ($input =~ /m/i) {
             $string =~ $regex;
+        }
+
+        # Explain the regex...
+        elsif ($input =~ /d/i) {
+            _show_regex_description($next_regex_ID-1);
         }
 
         # Redisplay the new regex and/or string...
@@ -3085,7 +3112,7 @@ Regexp::Debugger - Visually debug regexes in-place
 
 =head1 VERSION
 
-This document describes Regexp::Debugger version 0.001019
+This document describes Regexp::Debugger version 0.001020
 
 
 =head1 SYNOPSIS
@@ -3161,7 +3188,7 @@ The debugger offers the following commands:
 
 =item C<H>
 
-=item C<H>
+=item C<E>
 
 =item C<J>
 
@@ -3439,6 +3466,14 @@ it: C<x>, C<i>, C<m>, C<s>, C<a>, C<u>, C<d>, C<l>.
 
 =item *
 
+Any line starting with a C<+/> is treated as the first line of a new multi-
+line regex to match with. Subsequent lines are added to the regex until
+the closing C</> is encountered. Any one or more of the following flags
+may be specified immediately after the closing C</>: C<x>, C<i>, C<m>,
+C<s>, C<a>, C<u>, C<d>, C<l>.
+
+=item *
+
 Any line starting with a C<'> or C<"> is treated as a new string to match
 against. The corresponding closing delimiter may be omitted.
 
@@ -3446,6 +3481,11 @@ against. The corresponding closing delimiter may be omitted.
 
 Any line beginning with C<m> causes the REPL to match the current regex
 against the current string, visualizing the match in the usual way.
+
+=item *
+
+Any line beginning with C<d> causes the REPL to display a detailed
+decomposition and explanation of the current regex.
 
 =item *
 
